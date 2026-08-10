@@ -1,190 +1,187 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Mail, Lock, AlertCircle } from "lucide-react";
-import Image from "next/image";
+import { motion } from "framer-motion";
+import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 
-export function HomeClient() {
+import { Logo } from "@/components/logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { createOwnerAccount } from "@/lib/actions/auth";
+
+const HIGHLIGHTS = [
+  "Conditional intake forms that branch by package and service",
+  "Claude-generated 30/60/90 day roadmaps from calls and forms",
+  "One knowledge base per practice, fed by calls and WhatsApp",
+];
+
+export function AuthClient({ needsSetup }: { needsSetup: boolean }) {
+  const router = useRouter();
+  const [mode, setMode] = useState<"signin" | "setup">(
+    needsSetup ? "setup" : "signin"
+  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-    
-    try {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
+  async function handleSignIn(emailValue: string, passwordValue: string) {
+    const result = await signIn("credentials", {
+      email: emailValue,
+      password: passwordValue,
+      redirect: false,
+    });
 
-      if (result?.error) {
-        setError("Invalid credentials");
-      } else {
-        router.push("/dashboard");
-      }
-    } catch (error) {
-      setError("Something went wrong");
-    } finally {
-      setIsLoading(false);
+    if (result?.error) {
+      toast.error("Those credentials did not match an active account.");
+      return false;
     }
-  };
+
+    router.refresh();
+    router.push("/dashboard");
+    return true;
+  }
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (mode === "setup") {
+        const { error } = await createOwnerAccount({ name, email, password });
+        if (error) {
+          toast.error(error);
+          return;
+        }
+        toast.success("Workspace created. Signing you in...");
+      }
+
+      await handleSignIn(email, password);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
-      {/* Background Effects */}
-      <div className="bg-grid-pattern absolute inset-0 opacity-[0.02]" />
-      <div className="absolute left-1/4 top-1/4 size-96 rounded-full bg-primary-100 opacity-10 mix-blend-multiply blur-3xl" />
-      <div className="absolute right-1/4 top-3/4 size-96 rounded-full bg-secondary-100 opacity-10 mix-blend-multiply blur-3xl" />
-      
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-md"
-      >
-        <Card variant="default" className="w-full max-w-md shadow-xl">
-          <CardHeader className="space-y-4 text-center">
-            <motion.div
-              initial={{ y: -20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.5 }}
-              className="flex justify-center"
-            >
-              <Image
-                src="/logo.png"
-                alt="Jaro.dev"
-                width={64}
-                height={64}
-                className="rounded-2xl shadow-lg"
+    <main className="flex min-h-screen flex-col lg:flex-row">
+      <section className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-sm"
+        >
+          <Logo className="mb-8" />
+
+          <h1 className="text-2xl font-semibold tracking-tight text-secondary-900">
+            {mode === "setup" ? "Set up your workspace" : "Sign in"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {mode === "setup"
+              ? "Create the owner account to start onboarding practices."
+              : "Use your Ascendiagroup account to access the delivery workspace."}
+          </p>
+
+          <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
+            {mode === "setup" && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="name">Full name</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Katie Bennett"
+                  autoComplete="name"
+                  required
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="email">Work email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@ascendiagroup.com"
+                autoComplete="email"
+                required
               />
-            </motion.div>
-            
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.5 }}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder={mode === "setup" ? "At least 8 characters" : "••••••••"}
+                autoComplete={
+                  mode === "setup" ? "new-password" : "current-password"
+                }
+                required
+              />
+            </div>
+
+            <Button type="submit" className="mt-2 w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : null}
+              {mode === "setup" ? "Create workspace" : "Sign in"}
+              {!isSubmitting && <ArrowRight className="ml-2 size-4" />}
+            </Button>
+          </form>
+
+          {needsSetup && mode === "signin" && (
+            <button
+              type="button"
+              onClick={() => setMode("setup")}
+              className="mt-4 text-sm text-primary hover:underline"
             >
-              <CardTitle className="text-3xl font-bold text-primary-600">
-                Welcome Back
-              </CardTitle>
-              <CardDescription className="mt-2 text-secondary-600">
-                Sign in to access your workspace
-              </CardDescription>
-            </motion.div>
-          </CardHeader>
+              Set up the first account instead
+            </button>
+          )}
 
-          <CardContent className="space-y-6">
-            <AnimatePresence mode="wait">
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="flex items-center gap-3 rounded-lg border border-danger-200 bg-danger-50 p-4 text-danger-700"
-                >
-                  <AlertCircle className="size-5 shrink-0" />
-                  <span className="text-sm font-medium">{error}</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+          {!needsSetup && (
+            <p className="mt-6 flex items-start gap-2 text-xs text-muted-foreground">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-accent" />
+              Accounts are created by an owner or admin from Settings, Team.
+              Clients receive their own portal link by email.
+            </p>
+          )}
+        </motion.div>
+      </section>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <motion.div
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.4, duration: 0.5 }}
-                className="space-y-2"
-              >
-                <label htmlFor="email" className="block text-sm font-medium text-secondary-700">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-secondary-400" />
-                  <input
-                    id="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border border-secondary-200 bg-white py-3 pl-10 pr-4
-                      text-secondary-900 transition-all duration-200 placeholder:text-secondary-400
-                      hover:border-secondary-300 focus:border-primary-500 focus:ring-2
-                      focus:ring-primary-500/20"
-                    placeholder="Enter your email"
-                  />
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.5, duration: 0.5 }}
-                className="space-y-2"
-              >
-                <label htmlFor="password" className="block text-sm font-medium text-secondary-700">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-secondary-400" />
-                  <input
-                    id="password"
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-lg border border-secondary-200 bg-white py-3 pl-10 pr-4
-                      text-secondary-900 transition-all duration-200 placeholder:text-secondary-400
-                      hover:border-secondary-300 focus:border-primary-500 focus:ring-2
-                      focus:ring-primary-500/20"
-                    placeholder="Enter your password"
-                  />
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.6, duration: 0.5 }}
-              >
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="lg"
-                  isLoading={isLoading}
-                  className="w-full"
-                >
-                  {isLoading ? "Signing In..." : "Sign In"}
-                </Button>
-              </motion.div>
-            </form>
-
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.8, duration: 0.5 }}
-              className="text-center"
-            >
-              <p className="text-sm text-secondary-500">
-                <span className="font-semibold text-primary-600">
-                  Jaro.dev {" "}
-                </span>
-                Studio©
-              </p>
-            </motion.div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+      <section className="hidden flex-1 flex-col justify-center bg-secondary-900 px-12 py-16 text-white lg:flex">
+        <motion.div
+          initial={{ opacity: 0, x: 16 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          className="max-w-md"
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary-300">
+            Delivery operating system
+          </p>
+          <h2 className="mt-4 text-3xl font-semibold leading-tight">
+            From signed contract to a scaffolded 90 day plan, without the manual
+            handover.
+          </h2>
+          <ul className="mt-8 flex flex-col gap-4">
+            {HIGHLIGHTS.map((highlight) => (
+              <li key={highlight} className="flex items-start gap-3 text-sm">
+                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent" />
+                <span className="text-secondary-200">{highlight}</span>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      </section>
+    </main>
   );
 }

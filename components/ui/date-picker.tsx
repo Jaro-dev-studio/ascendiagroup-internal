@@ -75,7 +75,7 @@ export function DatePicker({
           placeholder={placeholder}
           className={cn(
             "cursor-pointer text-start",
-            !selectedDate && "text-text-secondary"
+            !selectedDate && "text-muted-foreground"
           )}
         />
       </PopoverTrigger>
@@ -172,7 +172,7 @@ export function DatePicker({
               >
                 <div className="mb-2 grid grid-cols-7 text-center text-sm">
                   {["S", "M", "T", "W", "T", "F", "S"].map(day => (
-                    <div key={day} className="text-text-secondary">
+                    <div key={day} className="text-muted-foreground">
                       {day}
                     </div>
                   ))}

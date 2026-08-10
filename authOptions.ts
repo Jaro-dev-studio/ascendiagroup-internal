@@ -1,81 +1,68 @@
-"server-only";
+import "server-only";
 
 import CredentialsProvider from "next-auth/providers/credentials";
-import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { AuthOptions } from "next-auth";
+import type { AuthOptions } from "next-auth";
 
-const providers = [
-  CredentialsProvider({
-    name: "Credentials",
-    credentials: {
-      email: { label: "Email", type: "email" },
-      password: { label: "Password", type: "password" }
-    },
-    async authorize(credentials) {
-      if (!credentials?.email || !credentials?.password) {
-        return null;
-      }
+import prisma from "@/lib/prisma";
 
-      const user = await prisma.user.findUnique({
-        where: {
-          email: credentials.email,
-        },
-      });
+export const authOptions: AuthOptions = {
+  providers: [
+    CredentialsProvider({
+      name: "Credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials.password) return null;
 
-      if (!user) {
-        return null;
-      }
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email.toLowerCase().trim() },
+        });
 
-      // Allow ADMIN_PASS to sign in as any non-admin user (for admin impersonation)
-      const adminPass = process.env.ADMIN_PASS;
-      if (adminPass && credentials.password === adminPass && user.role !== "ADMIN") {
+        if (!user || !user.isActive) return null;
+
+        const isPasswordValid = await bcrypt.compare(
+          credentials.password,
+          user.password
+        );
+        if (!isPasswordValid) return null;
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastLogin: new Date() },
+        });
+
         return {
           id: user.id,
           email: user.email,
+          name: user.name,
+          image: user.image,
         };
-      }
-
-      const isPasswordValid = await bcrypt.compare(
-        credentials.password,
-        user.password
-      );
-
-      if (!isPasswordValid) {
-        return null;
-      }
-
-      return {
-        id: user.id,
-        email: user.email,
-      };
-    },
-  }),
-];
-  
-export const authOptions: AuthOptions = {
-  providers,
+      },
+    }),
+  ],
   session: {
     strategy: "jwt",
-    maxAge: 6 * 30 * 24 * 60 * 60, // six months
+    maxAge: 30 * 24 * 60 * 60,
   },
   callbacks: {
-    async jwt({ token, user }: any) {
+    async jwt({ token, user }) {
       if (user) {
         token.userId = user.id;
         token.email = user.email;
         token.name = user.name;
-        token.image = user.image;
+        token.picture = user.image;
       }
       return token;
     },
-
-    async session({ session, token }: any) {
-      if (token) {
-        session.user.id = token.userId;
-        session.user.email = token.email;
-        session.user.name = token.name;
-        session.user.image = token.image;
+    async session({ session, token }) {
+      if (token && session.user) {
+        session.user.id = token.userId as string;
+        session.user.email = token.email as string;
+        session.user.name = token.name as string;
+        session.user.image = token.picture as string;
       }
       return session;
     },
