@@ -1,0 +1,101 @@
+# Jaro.dev Studio - Next.js Application
+
+- Jaro.dev is a software Jaro.dev is your software development agency. we mainly:
+
+Build MVPs from scratch for startups and companies.
+
+Basically, Jaro.dev helps founders and companies go from idea → MVP → scalable product in a fraction of the normal time, with guarantees that reduce risk for the client.
+
+• Code Style
+
+- Write concise, technical TypeScript code
+- Use functional and declarative programming patterns; avoid classes
+- Prefer iteration and modularization over code duplication
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError)
+- Don't repeat functionality or code
+- Keep code organized and consistent across the codebase
+- Keep components focused and composable
+- Use the cn() utility for conditional classNames
+- Every page.tsx page should be a server component, and do data fetching if needed
+- Always return data from fetchers and actions in following format: `{ data: (type of data) | null, error: string | null }`
+- Always wrap fetchers and actions within try-catch block
+
+• Folder Structure
+
+- All actions should be defined within /actions folder
+- All fetchers should be defined within /fetchers folder
+- Use lowercase with dashes as file naming convensions for both actions and fetchers
+- All forms should be defined within /components/forms folder
+- All modals should be defined within /components/modals folder
+- Layout components should be defined within /components/layout folder
+- All configuration files must be defined within /config folder
+- All constant data must be defined within /constants folder
+- All custom hooks must be defined within /hooks folder
+- Client-side environment variables types starting with NEXT_PUBLIC must be defined in /env/client.ts
+- Server-side environment variables types must be defined in /env/server.ts
+- Always add css/scss files to /styles folder
+- Always add any third-party providers to /providers folder and use it in /providers/index.tsx file
+- Always use server actions, avoid API routes unless necessary (e.g. for webhooks)
+
+• Naming Conventions
+
+- All components should go in /components and be named like new-component.tsx
+- Use lowercase with dashes for directories (e.g., components/auth-wizard)
+- Don't define custom components within /ui folder.
+- Favor named exports for components
+
+• TypeScript Usage
+
+- Use TypeScript for all code
+- Prefer interfaces over types
+
+• UI and Styling
+
+- Always use CSS variable-based colors (primary, secondary, accent, background, etc.)
+- Never hardcode hex colors - use Tailwind classes that map to CSS variables
+- Always use colors from tailwind.config.js, without opacity variants i.e. bg-background instead of bg-background/40
+- Use mobile-first approach for responsive design
+- Use Tailwind responsive prefixes (sm:, md:, lg:) for breakpoints
+- Test all layouts on mobile viewport
+- Make sure everything you produce is mobile-friendly
+- Avoid customizing base components with className unless necessary, i.e. <Card/> instead of <Card className="blah blah blah">
+- Don't change element sizes on hover
+- Don't use gradients
+- Keep UI consistent across pages
+- In dialogs the cancel button should be on the right, the action button on the left, only ever have max 2 buttons in a dialog
+- Use modern UI/UX design patterns
+
+• Performance Optimization
+
+- Minimize re-renders
+
+• Animations
+
+- Use Tailwind transitions for simple effects
+- Use Framer Motion for complex animations
+- Keep animations subtle and professional
+
+• Accessibility and Content
+
+- Include proper semantic HTML
+- Ensure accessibility (alt texts, ARIA labels)
+- Never use placeholder, mock, dummy or hardcoded fallback data - this is a real production app, all content and data must come from the real data sources (database, actions, fetchers). If data is missing, show a proper empty state instead of fabricating it
+
+• Key Conventions
+
+- Favor server components and Next.js SSR
+- Always structure pages as follows: page.tsx for data fetching with inside it a client component which lives in client.tsx in the same directory, loading.tsx for loading state based on client.tsx
+- Avoid using space-x and space-y instead use flex and gap e.g. flex flex-row gap-2
+
+use pnpnm
+use pnpm lint for linting fixes, do not fix linting errors manually
+
+always use prisma db push, never use prisma db migrate.
+
+Always build at the end of the task and fix build.
+
+If using third party apis, make sure to test the get requests at least to make sure the data being sent is valid and it returns a 200
+
+Never run prisma db push with the accept data loss flag.
+
+The project is hosted on Vercel, always keep that in mind - i.e. function durations, parallelization, and always update env variables in vercel using cli for all relevant environments so there is never a need to set variables manually in Vercel.

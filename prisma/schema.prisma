@@ -1,0 +1,2481 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("POSTGRES_PRISMA_URL") // uses connection pooling
+  directUrl  = env("POSTGRES_URL_NON_POOLING") // uses a direct connection
+  extensions = [pgvector(map: "vector")]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model User {
+  id String @id @default(cuid())
+
+  email     String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  role      UserRole @default(CLIENT)
+
+  // The @jaro.dev mailbox impersonated when sending email on this user's behalf.
+  // Required for sequence senders; domain-wide delegation cannot reach addresses
+  // outside the Workspace domain.
+  sendingMailbox String?
+
+  // Optional link to ClientCompany (only for CLIENT role users)
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  prototypes             Prototype[]
+  funnels                Funnel[]
+  calculations           Calculation[]
+  assignedTasks          Task[]           @relation("TaskAssignee")
+  createdTasks           Task[]           @relation("TaskCreatedBy")
+  createdActionItems     ActionItem[]     @relation("ActionItemCreatedBy")
+  taskViews              TaskView[]       @relation("TaskViews")
+  actionItemViews        ActionItemView[] @relation("ActionItemViews")
+  aiChats                AIChat[]
+  aiActionLogs           AIActionLog[]
+  createdRequests        Request[]
+  assignedRecurringTasks RecurringTask[]  @relation("RecurringTaskAssignee")
+
+  // CRM ownership
+  ownedPeople    Person[]        @relation("PersonOwner")
+  ownedCompanies Company[]       @relation("CompanyOwner")
+  ownedDeals     Deal[]          @relation("DealOwner")
+  crmNotes       CrmNote[]       @relation("CrmNoteAuthor")
+  crmActivities  CrmActivity[]   @relation("CrmActivityActor")
+  recordingRules RecordingRule[]
+  sequences      Sequence[]      @relation("SequenceCreatedBy")
+
+  pageAccess UserPageAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A dashboard page an admin can grant or revoke access to. Rows are generated
+// from config/page-registry.ts, which is produced by scripts/generate-page-registry.ts.
+model Page {
+  id        String  @id @default(cuid())
+  path      String  @unique
+  label     String
+  group     String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  roleAccess RolePageAccess[]
+  userAccess UserPageAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Default page access for a role. ADMIN is not stored here; admins always have full access.
+model RolePageAccess {
+  id     String   @id @default(cuid())
+  role   UserRole
+  pageId String
+  page   Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([role, pageId])
+  @@index([pageId])
+}
+
+// Per-user override of the role default. No row means the role default applies.
+model UserPageAccess {
+  id      String  @id @default(cuid())
+  userId  String
+  pageId  String
+  allowed Boolean
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page    Page    @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, pageId])
+  @@index([pageId])
+}
+
+model TaskView {
+  id   String @id @default(cuid())
+  name String
+
+  // View settings
+  viewMode      String  @default("table") // "table" or "kanban"
+  sortColumn    String? // "client", "status", "priority", "assignee", "dueDate"
+  sortDirection String  @default("asc") // "asc" or "desc"
+
+  // Filters stored as JSON arrays
+  statusFilters         String[] // TaskStatus values
+  priorityFilters       String[] // TaskPriority values
+  clientFilters         String[] // ClientCompany IDs
+  assigneeFilters       String[] // User IDs or "unassigned"
+  createdByFilters      String[] // User IDs or "automation"
+  agentExecutionFilters String[] // "has_execution", "no_execution", "active_agent", "completed_agent"
+
+  // Owner
+  userId String
+  user   User   @relation("TaskViews", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ActionItemView {
+  id   String @id @default(cuid())
+  name String
+
+  // View settings
+  viewMode      String  @default("table") // "table" or "kanban"
+  sortColumn    String? // "client", "status", "priority"
+  sortDirection String  @default("asc") // "asc" or "desc"
+
+  // Filters stored as JSON arrays
+  statusFilters   String[] // TaskStatus values
+  priorityFilters String[] // TaskPriority values
+  clientFilters   String[] // ClientCompany IDs
+
+  // Owner
+  userId String
+  user   User   @relation("ActionItemViews", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Company {
+  id      String  @id @default(cuid())
+  name    String
+  website String? // Company website URL for brand scraping
+
+  // Read-only mirror of this company's deals. Never write it directly; deals are
+  // the source of truth and lib/crm/company-status.ts recomputes this.
+  status CompanyStatus @default(FORM_SUBMITTED)
+
+  // Calendly call booking details (Q1 answer from discovery call booking)
+  callBookingDetails String? @db.Text
+
+  // Slack channel IDs for notifications
+  slackPublicChannelId   String? // Channel the client has access to
+  slackInternalChannelId String? // Internal channel (client doesn't have access)
+
+  // CRM attributes
+  domain        String? // Primary bare email/web domain, used to match people to companies
+  domains       String[] // Every known domain; companies that rebrand keep both
+  industry      String?
+  employeeCount Int?
+  linkedinUrl   String?
+  description   String?  @db.Text
+  attioRecordId String?  @unique // Historical provenance from the CRM migration
+  customFields  Json? // Attributes with no first-class column here
+
+  // Automated research, written by lib/research/company-research.ts when a
+  // qualified lead comes in. `description` mirrors researchSummary only while
+  // nobody has written their own, so hand-written copy is never overwritten.
+  researchSummary            String?               @db.Text
+  researchOpportunities      Json? // ResearchOpportunity[]: how our work could help them
+  researchDiscoveryQuestions String[]
+  researchSources            Json? // WebSource[] the research was drawn from
+  researchConfidence         String? // high | medium | low, self-reported by the agent
+  researchStatus             CompanyResearchStatus @default(NOT_STARTED)
+  researchError              String?
+  researchedAt               DateTime?
+
+  // Brand, scraped from the company's own site alongside the research
+  logoUrl        String?
+  primaryColor   String?
+  secondaryColor String?
+  accentColor    String?
+
+  // Denormalised engagement signals, rolled up from this company's people plus
+  // its own meetings. Maintained by lib/crm/engagement.ts.
+  lastEmailInteractionAt    DateTime?
+  lastCalendarInteractionAt DateTime?
+  nextCalendarEventAt       DateTime?
+  nextCalendarEventTitle    String?
+  connectionStrength        CrmConnectionStrength?
+  engagementComputedAt      DateTime?
+
+  ownerId String?
+  owner   User?   @relation("CompanyOwner", fields: [ownerId], references: [id])
+
+  users                    User[]
+  tasks                    Task[]
+  actionItems              ActionItem[]
+  requests                 Request[]
+  meetings                 Meeting[]
+  slackNotificationConfigs SlackNotificationConfig[]
+  demos                    Demo[]
+  caseStudies              CaseStudy[]
+  salesCallMaps            SalesCallMap[]
+  recurringTasks           RecurringTask[]
+  mvpCallMaps              MVPCallMap[]
+  formSubmissions          EmbedFormSubmission[]
+  mvpPlannerSessions       MvpPlannerSession[]
+
+  people         Person[]
+  deals          Deal[]
+  crmNotes       CrmNote[]
+  crmActivities  CrmActivity[]
+  crmListEntries CrmListEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domain])
+  @@index([ownerId])
+  @@index([nextCalendarEventAt])
+  @@index([lastEmailInteractionAt])
+  @@map("ClientCompany")
+}
+
+enum CompanyResearchStatus {
+  NOT_STARTED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum CompanyStatus {
+  FORM_SUBMITTED
+  CALL_BOOKED
+  NO_SHOW
+  ATTENDED_SALES_CALL
+  PURCHASED
+  LOST
+  CHURNED
+
+  @@map("ClientCompanyStatus")
+}
+
+// Slack notification configuration per client per event type
+model SlackNotificationConfig {
+  id String @id @default(cuid())
+
+  // Which event triggers this notification
+  eventType SlackNotificationEventType
+
+  // Which channel(s) to send to
+  sendToPublic   Boolean @default(false)
+  sendToInternal Boolean @default(false)
+
+  // Link to ClientCompany
+  clientCompanyId String
+  clientCompany   Company @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Each client can only have one config per event type
+  @@unique([clientCompanyId, eventType])
+  @@index([clientCompanyId])
+}
+
+enum SlackNotificationEventType {
+  ACTION_ITEM_CREATED
+  TASK_COMPLETED
+  ACTION_ITEM_COMPLETED
+  TASK_UNBLOCKED
+  FEATURE_REQUESTED
+  BUG_REQUESTED
+}
+
+model ActionItem {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(TODO)
+
+  // Required link to ClientCompany
+  clientCompanyId String
+  clientCompany   Company @relation(fields: [clientCompanyId], references: [id])
+
+  // Tasks that are blocked by this action item
+  blockingTasks Task[] @relation("TaskBlockedByActionItem")
+
+  // Optional link to Meeting (when action item is created from a meeting)
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id])
+
+  // Track who created this action item
+  createdById                String?
+  createdBy                  User?   @relation("ActionItemCreatedBy", fields: [createdById], references: [id])
+  createdByJaroDevAutomation Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([meetingId])
+  @@index([createdById])
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(TODO)
+  dueDate     DateTime?
+
+  // Required link to ClientCompany
+  clientCompanyId String
+  clientCompany   Company @relation(fields: [clientCompanyId], references: [id])
+
+  // Optional assignee
+  assigneeId String?
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  // Optional link to Request (when task is created from an accepted request)
+  request Request?
+
+  // Attachments linked to this task
+  attachments Attachment[]
+
+  // Agent executions for this task
+  agentExecutions TaskAgentExecution[]
+
+  // Blocking relationships - tasks/action items that block this task
+  blockedByTasks       Task[]       @relation("TaskBlockedByTask")
+  blockingTasks        Task[]       @relation("TaskBlockedByTask")
+  blockedByActionItems ActionItem[] @relation("TaskBlockedByActionItem")
+
+  // Optional link to Meeting (when task is created from a meeting)
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id])
+
+  // Track who created this task
+  createdById                String?
+  createdBy                  User?   @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  createdByJaroDevAutomation Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([meetingId])
+  @@index([createdById])
+}
+
+model Attachment {
+  id   String @id @default(cuid())
+  name String
+  url  String
+  type String // MIME type e.g. video/mp4
+  size Int // File size in bytes
+
+  // Link to Task
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId])
+}
+
+model Request {
+  id               String        @id @default(cuid())
+  title            String
+  description      String?
+  priority         TaskPriority  @default(MEDIUM)
+  type             RequestType
+  status           RequestStatus @default(SUBMITTED)
+  rejectionComment String?
+
+  // Bug-specific fields (only used when type is BUG)
+  stepsToReproduce   String?      @db.Text
+  expectedBehavior   String?      @db.Text
+  bugSeverity        BugSeverity?
+  screenRecordingUrl String?
+
+  // Required link to ClientCompany
+  clientCompanyId String
+  clientCompany   Company @relation(fields: [clientCompanyId], references: [id])
+
+  // Optional link to User who created the request
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  // Optional link to Task (when request is accepted)
+  taskId String? @unique
+  task   Task?   @relation(fields: [taskId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum RequestType {
+  FEATURE
+  BUG
+}
+
+enum BugSeverity {
+  CRITICAL // Product doesn't work at all
+  HIGH // Important features broken
+  MEDIUM // Product works but issue affects users
+  LOW // Cosmetic or low-impact issue
+}
+
+enum RequestStatus {
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING_ADMIN_REVIEW
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+}
+
+enum UserRole {
+  ADMIN
+  DEVELOPER
+  CLIENT
+}
+
+model Prototype {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  flowData    Json? // This will store the React Flow data
+  roles       Role[] // Add this line
+  createdBy   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  prototype   Prototype @relation(fields: [prototypeId], references: [id], onDelete: Cascade)
+  prototypeId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Funnel {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  flowData    Json? // This will store the funnel data
+  createdBy   User     @relation(fields: [userId], references: [id])
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Calculation {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  flowData    Json? // This will store the calculation data
+  createdBy   User     @relation(fields: [userId], references: [id])
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================
+// CASE STUDY ENUMS
+// ============================================
+
+enum Technology {
+  NEXTJS_APP_ROUTER
+  JAVASCRIPT
+  TYPESCRIPT
+  REACT
+  TAILWIND_CSS
+  PLANETSCALE
+  VERCEL
+  PRISMA
+  GOOGLE_CLOUD_FUNCTIONS
+  UNIT_TESTING
+  PLAYWRIGHT
+  PUPPETEER
+  MONGODB
+  NEON_POSTGRES
+  CHATGPT
+  CLAUDE
+}
+
+enum ServiceProvided {
+  SCRAPING
+  INTERNAL_WEB_APPLICATION
+  SAAS
+  PWA
+  ARCHITECTURE_CONSULTING
+  ETL
+  AUTOMATION
+  AI_INTEGRATION
+  UI_UX_DESIGN
+  CI_CD_INFRASTRUCTURE_SETUP
+}
+
+// ============================================
+// CASE STUDY MODEL
+// ============================================
+
+model CaseStudy {
+  id            String            @id @default(cuid())
+  name          String
+  companyName   String?
+  body          String            @db.Text
+  generatedText String?           @db.Text
+  technologies  Technology[]
+  services      ServiceProvided[]
+  publicUrl     String?
+
+  // Optional link to ClientCompany
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientCompanyId])
+}
+
+// ============================================
+// EMBED FORM SUBMISSIONS
+// ============================================
+
+enum FormType {
+  REGULAR
+  BUSINESSOS
+}
+
+model EmbedFormSubmission {
+  id String @id @default(cuid())
+
+  // Form type
+  type FormType @default(REGULAR)
+
+  // Form fields (common)
+  name     String
+  email    String
+  timeline String?
+
+  // Form fields (regular form only)
+  hasExistingCodebase     Boolean?
+  budget                  String?
+  monthlyRevenue          String?
+  productType             String? // internal or external
+  platform                String? // web, mobile, or both
+  servicesNeeded          String[] // multi-select services
+  otherServiceDescription String? // description if "other" is selected
+
+  // Form fields (businessOS form only)
+  companyHeadcount String? // 0-50, 51-200, 201-1000, 1001+
+  manualProcesses  String? // optional text describing manual processes
+
+  // UTM parameters
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+
+  // Metadata
+  redirectedTo String? // Track where user was redirected
+  ipAddress    String?
+  userAgent    String?
+  referrer     String?
+
+  // Facebook Lead Form tracking
+  facebookLeadId String? @unique // Facebook lead ID (e.g., l:1220682333456906)
+
+  // Processed fields (populated by workflow)
+  emailValidation String? // NeverBounce result: valid, invalid, catchall, unknown, etc.
+  firstName       String?
+  lastName        String?
+  attioRecordId   String? // Historical: Attio person ID, for submissions predating the CRM
+  errors          String[] // Array of error messages from processing
+
+  // Link to Company (by email domain)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  // Link to the CRM contact created from this submission
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id])
+
+  // Sales Call Maps linked to this submission
+  salesCallMaps SalesCallMap[]
+
+  // MVP Call Maps linked to this submission
+  mvpCallMaps MVPCallMap[]
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+  @@index([companyId])
+  @@index([personId])
+}
+
+// ============================================
+// AI CHAT MODELS
+// ============================================
+
+model AIChat {
+  id    String @id @default(cuid())
+  title String @default("New Chat")
+
+  // Owner
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Messages
+  messages AIChatMessage[]
+
+  pendingActions AIChatPendingAction[]
+  actionLogs     AIActionLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+model AIChatMessage {
+  id      String @id @default(cuid())
+  role    String // "user" | "assistant" | "system"
+  content String @db.Text
+
+  // Optional tool call data (stored as JSON)
+  toolCalls Json?
+
+  // Parent chat
+  chatId String
+  chat   AIChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  pendingActions AIChatPendingAction[]
+
+  createdAt DateTime @default(now())
+
+  @@index([chatId])
+}
+
+// Mutating tool calls paused awaiting explicit user approval.
+// conversationSnapshot holds the OpenAI message array so the agent loop
+// can resume in a later HTTP request once the user decides.
+model AIChatPendingAction {
+  id String @id @default(cuid())
+
+  toolName   String
+  toolCallId String
+  args       Json
+  risk       String // "additive" | "destructive"
+
+  previewTitle   String
+  previewSummary String @db.Text
+  previewDetails Json?
+
+  conversationSnapshot Json
+
+  status String  @default("PENDING") // "PENDING" | "REJECTED" | "EXECUTED" | "FAILED"
+  result Json?
+  error  String? @db.Text
+
+  chatId String
+  chat   AIChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  messageId String?
+  message   AIChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([chatId])
+  @@index([status])
+}
+
+model AIActionLog {
+  id String @id @default(cuid())
+
+  toolName String
+  args     Json
+  risk     String
+  status   String // "EXECUTED" | "REJECTED" | "FAILED"
+  result   Json?
+  error    String? @db.Text
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chatId String?
+  chat   AIChat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([chatId])
+  @@index([createdAt])
+}
+
+// ============================================
+// KNOWLEDGE BASE
+// ============================================
+
+model KnowledgeBaseDocument {
+  id         String  @id @default(cuid())
+  title      String
+  content    String  @db.Text
+  sourceType String // "UPLOAD" | "MANUAL"
+  fileUrl    String?
+  fileName   String?
+  mimeType   String?
+  status     String  @default("PROCESSING") // "PROCESSING" | "READY" | "FAILED"
+
+  chunks KnowledgeBaseChunk[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model KnowledgeBaseChunk {
+  id         String                      @id @default(cuid())
+  content    String                      @db.Text
+  embedding  Unsupported("vector(1536)")
+  chunkIndex Int
+
+  documentId String
+  document   KnowledgeBaseDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([documentId])
+}
+
+// ============================================
+// AD LIBRARY (Saved Ad Inspirations)
+// ============================================
+
+model AdLibraryItem {
+  id          String   @id @default(cuid())
+  imageUrl    String // Vercel Blob URL
+  title       String?
+  sourceUrl   String?
+  description String?  @db.Text
+  tags        String[] // Array of tags for filtering
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+// ============================================
+// MEETINGS & CALL RECORDINGS
+// ============================================
+
+enum MeetingProvider {
+  ATTIO
+  RECALL
+}
+
+model Meeting {
+  id String @id @default(cuid())
+
+  // Which recorder produced this meeting. Attio is retained for imported
+  // history only; everything new arrives from Recall.
+  provider MeetingProvider @default(RECALL)
+
+  // Provider meeting/recording identifiers.
+  // ATTIO: Attio meeting ID + call recording ID.
+  // RECALL: calendar event ID (or bot ID when there is no event) + Recall bot ID.
+  meetingId       String @unique
+  callRecordingId String
+
+  // Meeting details
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+
+  // Participants (array of email addresses)
+  participants String[]
+
+  // Transcript
+  formattedTranscript String @db.Text // Grouped by speaker text format
+  rawTranscript       Json // Original JSON transcript
+
+  // AI-generated summary and next steps
+  summary          String? @db.Text // Summary of the call
+  nextStepsJaroDev String? @db.Text // Next steps for Jaro.dev (JSON array)
+  nextStepsClient  String? @db.Text // Next steps for Client (JSON array)
+
+  // Call type detection (AI-determined)
+  callType String? // "SALES_CALL" | "CLIENT_MEETING" | null (unknown)
+
+  // Optional link to ClientCompany (derived from participant emails)
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  // Tasks and action items created from this meeting
+  tasks         Task[]
+  actionItems   ActionItem[]
+  salesCallMaps SalesCallMap[]
+
+  // Objections identified from sales calls
+  objections SalesCallObjection[]
+
+  // Demos linked to this meeting for transcript context
+  demos Demo[]
+
+  // Generated followups from this meeting
+  followups MeetingFollowup[]
+
+  // CRM timeline entries referencing this meeting
+  crmActivities CrmActivity[]
+
+  // Recording media (Recall only; expires per the provider's retention window)
+  recordingUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([meetingId, callRecordingId])
+  @@index([clientCompanyId])
+  @@index([startTime])
+  @@index([provider])
+}
+
+// ============================================
+// SALES CALL OBJECTION ANALYSIS
+// ============================================
+
+model SalesCallObjection {
+  id String @id @default(cuid())
+
+  // The objection that was raised by the prospect
+  objection String @db.Text
+
+  // How the salesperson responded to the objection
+  response String @db.Text
+
+  // Whether the objection was resolved (prospect accepted the solution)
+  resolved Boolean
+
+  // Context: what was the prospect's reaction after the response?
+  resolutionContext String? @db.Text
+
+  // Category of objection (e.g., "price", "timing", "authority", "need", "other")
+  category String?
+
+  // Link to Meeting
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([meetingId])
+  @@index([category])
+}
+
+// ============================================
+// OFFERS
+// ============================================
+
+model Offer {
+  id          String  @id @default(cuid())
+  title       String
+  description String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+// ============================================
+// AI FUNNEL DIAGNOSTICS
+// ============================================
+
+model AiFunnelDiagnostic {
+  id String @id @default(cuid())
+
+  // Meta Ad reference
+  metaAdId   String
+  metaAdName String
+  adImageUrl String
+  adBody     String? @db.Text
+  adHeadline String?
+
+  // Landing page
+  landingPageUrl        String
+  landingPageScreenshot String? // Vercel Blob URL
+  landingPageContent    String? @db.Text
+
+  // AI Analysis
+  adAnalysis          String @db.Text
+  landingPageAnalysis String @db.Text
+  fullConversation    Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([metaAdId])
+  @@index([createdAt])
+}
+
+// ============================================
+// DEMOS (AI-Generated Interactive Websites)
+// ============================================
+
+model Demo {
+  id     String  @id @default(cuid())
+  name   String
+  slug   String? @unique // URL-friendly slug (lowercase client name)
+  prompt String  @db.Text
+
+  // Status: queued | pending | generating | deploying | ready | failed | rejected
+  status       String  @default("pending")
+  errorMessage String?
+
+  // Admin approval queue (builds queued after a sales call await approval)
+  additionalContext String?   @db.Text // Admin-added prompt context at approval
+  rejectionReason   String?
+  approvedAt        DateTime?
+  approvedById      String?
+
+  // GitHub integration
+  githubRepoUrl  String? // e.g., https://github.com/Jaro-dev-studio/properlydone-internal
+  githubRepoName String? // e.g., properlydone-internal
+  templateRepo   String? // Which template was used (e.g., "demo-template-nextjs")
+
+  // Cursor Cloud Agent
+  cursorAgentId     String? // Cursor agent ID for webhook matching
+  cursorAgentStatus String? // CREATING, RUNNING, FINISHED, ERROR, STOPPED
+  cursorAgentUrl    String? // URL to view agent in Cursor
+
+  // Vercel integration
+  vercelProjectId String? // Vercel project ID for webhook matching
+  vercelDeployUrl String? // Production deployment URL (for iframe)
+
+  // Tech stack selection
+  techStack String[] // Selected tech stack items (e.g., ["NextAuth", "Prisma", "NeonDB"])
+
+  // Link to client company (for auto-generated demos from sales calls)
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  // Link to Meeting for full transcript
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id])
+
+  // Link to MVP quote for product requirements
+  mvpSharedQuoteId String?
+  mvpSharedQuote   MVPSharedQuote? @relation(fields: [mvpSharedQuoteId], references: [id])
+
+  // Link to MVP call map used as build context
+  mvpCallMapId String?
+  mvpCallMap   MVPCallMap? @relation(fields: [mvpCallMapId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([clientCompanyId])
+  @@index([cursorAgentId])
+  @@index([vercelProjectId])
+  @@index([meetingId])
+  @@index([mvpSharedQuoteId])
+  @@index([mvpCallMapId])
+}
+
+// ============================================
+// TASK AGENT EXECUTIONS
+// ============================================
+
+model TaskAgentExecution {
+  id String @id @default(cuid())
+
+  // Link to Task
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  // GitHub repo
+  githubRepoName String
+  githubRepoUrl  String
+
+  // Prompt used
+  prompt String @db.Text
+
+  // Cursor Agent
+  cursorAgentId     String
+  cursorAgentUrl    String
+  cursorAgentStatus String @default("CREATING") // CREATING, RUNNING, FINISHED, ERROR, STOPPED
+
+  // PR info (populated when agent finishes)
+  prUrl      String?
+  prNumber   Int?
+  branchName String?
+
+  // Summary from agent
+  summary      String? @db.Text
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId])
+  @@index([cursorAgentId])
+}
+
+// ============================================
+// SALES CALL MAPS (Operations Audit)
+// ============================================
+
+model SalesCallMap {
+  id String @id @default(cuid())
+
+  name  String
+  notes String? @db.Text
+
+  // Audit data stored as JSON (section scores, checked items, notes per section)
+  auditData Json?
+
+  // Optional link to ClientCompany
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  // Optional link to Meeting
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id])
+
+  // Optional link to EmbedFormSubmission (prospect info)
+  formSubmissionId String?
+  formSubmission   EmbedFormSubmission? @relation(fields: [formSubmissionId], references: [id])
+
+  // Shared quotes generated from this sales call
+  sharedQuotes SharedQuote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientCompanyId])
+  @@index([meetingId])
+  @@index([formSubmissionId])
+}
+
+// ============================================
+// SHARED QUOTES (Public shareable quote links)
+// ============================================
+
+model SharedQuote {
+  id    String @id @default(cuid())
+  token String @unique @default(cuid()) // Unique token for public URL
+
+  // Company/prospect info
+  companyName  String
+  contactName  String?
+  contactEmail String?
+
+  // Quote data
+  lineItems       Json // Array of line items with code, name, quantity, price
+  subtotal        Int
+  discountPercent Int  @default(0)
+  discountAmount  Int  @default(0)
+  total           Int
+  deposit         Int // 20% deposit
+  balance         Int // 80% balance
+
+  // On-call discount (15% if they buy during the call)
+  onCallDiscountPercent Int @default(15)
+  onCallTotal           Int // Total with on-call discount applied
+  onCallDeposit         Int // Deposit with on-call discount
+  onCallBalance         Int // Balance with on-call discount
+
+  // Pain points / value props (what problems this solves)
+  painPoints Json? // Array of { section: string, items: string[] }
+
+  // Expiration
+  expiresAt DateTime
+
+  // Link to SalesCallMap
+  salesCallMapId String
+  salesCallMap   SalesCallMap @relation(fields: [salesCallMapId], references: [id], onDelete: Cascade)
+
+  // Tracking
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+
+  // Stripe payment tracking
+  stripeSessionId   String?
+  stripePaymentId   String?
+  depositPaidAt     DateTime?
+  depositPaidAmount Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@index([salesCallMapId])
+  @@index([expiresAt])
+}
+
+// ============================================
+// RECURRING TASKS
+// ============================================
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model RecurringTask {
+  id          String       @id @default(cuid())
+  name        String
+  description String?      @db.Text
+  priority    TaskPriority @default(MEDIUM)
+
+  // Recurrence settings
+  frequency  RecurrenceFrequency
+  dayOfWeek  Int? // 0-6 (Sun-Sat) for WEEKLY frequency
+  dayOfMonth Int? // 1-31 for MONTHLY frequency
+  isActive   Boolean             @default(true)
+
+  // When was the last task created from this recurring task
+  lastCreatedAt DateTime?
+
+  // Link to ClientCompany
+  clientCompanyId String
+  clientCompany   Company @relation(fields: [clientCompanyId], references: [id])
+
+  // Optional assignee for created tasks
+  assigneeId String?
+  assignee   User?   @relation("RecurringTaskAssignee", fields: [assigneeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientCompanyId])
+  @@index([isActive])
+}
+
+// ============================================
+// AD GENERATOR (Programmatic Ad Creation)
+// ============================================
+
+model AdTarget {
+  id   String @id @default(cuid())
+  name String // e.g., "50+ Employees?"
+
+  permutations AdPermutation[]
+  solutions    AdSolution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model AdSolution {
+  id   String @id @default(cuid())
+  // Text with highlight markers using curly braces, e.g., "Save $200K+/mo With {AI Agents} That Replace Your Team"
+  text String
+
+  permutations AdPermutation[]
+  targets      AdTarget[]
+  destinations AdDestination[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model AdRiskReversal {
+  id   String @id @default(cuid())
+  text String // e.g., "Risk-free 7-Day Trial"
+
+  permutations AdPermutation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model AdDestination {
+  id    String @id @default(cuid())
+  label String
+  url   String
+
+  permutations AdPermutation[]
+  solutions    AdSolution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model AdPermutation {
+  id String @id @default(cuid())
+
+  // Links to the components
+  targetId       String
+  target         AdTarget       @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  solutionId     String
+  solution       AdSolution     @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+  riskReversalId String
+  riskReversal   AdRiskReversal @relation(fields: [riskReversalId], references: [id], onDelete: Cascade)
+  destinationId  String?
+  destination    AdDestination? @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  // Meta Ad tracking
+  metaAdId       String? // Meta ad ID if created
+  metaAdUrl      String? // Link to the ad in Meta Ads Manager
+  metaCampaignId String?
+  metaAdSetId    String?
+
+  // Ad copy fields (can include merge tags: {target}, {solution}, {risk_reversal}, {destination})
+  adHeadline    String?
+  adPrimaryText String? @db.Text
+  adDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([targetId, solutionId, riskReversalId, destinationId])
+  @@index([targetId])
+  @@index([solutionId])
+  @@index([riskReversalId])
+  @@index([destinationId])
+  @@index([metaAdId])
+}
+
+// ============================================
+// MVP CALL MAPS (Product Builder for MVP Offer)
+// ============================================
+
+model MVPCallMap {
+  id    String  @id @default(cuid())
+  name  String
+  notes String? @db.Text
+
+  // React Flow diagram data (pages, APIs, custom logic blocks)
+  flowData Json?
+
+  // Configurator data (auth, team, dns, email settings)
+  configuratorData Json?
+
+  // Optional link to ClientCompany
+  clientCompanyId String?
+  clientCompany   Company? @relation(fields: [clientCompanyId], references: [id])
+
+  // Optional link to EmbedFormSubmission (prospect info)
+  formSubmissionId String?
+  formSubmission   EmbedFormSubmission? @relation(fields: [formSubmissionId], references: [id])
+
+  // Shared quotes generated from this MVP call map
+  sharedQuotes MVPSharedQuote[]
+
+  // Product builds that used this call map as context
+  demos Demo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientCompanyId])
+  @@index([formSubmissionId])
+}
+
+// ============================================
+// MVP SHARED QUOTES (Public shareable quote links)
+// ============================================
+
+model MVPSharedQuote {
+  id    String @id @default(cuid())
+  token String @unique @default(cuid()) // Unique token for public URL
+
+  // Company/prospect info
+  companyName  String
+  contactName  String?
+  contactEmail String?
+
+  // Product summary (from flow data)
+  productSummary Json // { pages: [...], apis: [...], customLogic: [...] }
+
+  // Diagram snapshot (nodes and edges at time of quote creation)
+  diagramData Json? // { nodes: [...], edges: [...] }
+
+  // Quote data with milestones
+  lineItems  Json // Array of line items with code, name, quantity, price, milestoneId
+  milestones Json // Array of { id, name, lineItemCodes[], amount }
+
+  subtotal       Int
+  discountAmount Int @default(0) // USD discount amount
+  total          Int
+  deposit        Int // 20% deposit
+  balance        Int // 80% balance (split across milestones)
+
+  // Expiration
+  expiresAt DateTime
+
+  // Link to MVPCallMap
+  mvpCallMapId String
+  mvpCallMap   MVPCallMap @relation(fields: [mvpCallMapId], references: [id], onDelete: Cascade)
+
+  // Tracking
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+
+  // Stripe payment tracking
+  stripeSessionId   String?
+  stripePaymentId   String?
+  depositPaidAt     DateTime?
+  depositPaidAmount Int?
+
+  // Demos linked to this quote for product requirements
+  demos Demo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@index([mvpCallMapId])
+  @@index([expiresAt])
+}
+
+// ============================================
+// MVP PLANNER SESSIONS (Post-booking AI planner)
+// ============================================
+
+model MvpPlannerSession {
+  id    String  @id @default(cuid())
+  email String
+  name  String?
+
+  // React Flow diagram data built by the AI conversation
+  flowData Json?
+
+  // Full chat conversation history
+  chatHistory Json?
+
+  // Calculated quote total
+  quoteTotal Float?
+
+  // Link to company (found by email domain)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([companyId])
+}
+
+// ============================================
+// PRESENTATIONS
+// ============================================
+
+model Presentation {
+  id     String @id @default(cuid())
+  title  String
+  slides Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+// ============================================
+// GOVERNMENT CONTRACTS (SAM.gov Tracker)
+// ============================================
+
+enum GovContractStatus {
+  SOURCES_SOUGHT
+  GO_NO_GO
+  POC_OUTREACH
+  RESPONSE_DRAFTED
+  RECEIPT_CONFIRMED
+  FOLLOWUP_MEETING
+  AWAITING_SOLICITATION
+  SOLICITATION_RELEASED
+  PROPOSAL_SUBMITTED
+  PROPOSAL_RECEIPT_CONFIRMED
+  MONITORING_AWARD
+  WON
+  LOST
+}
+
+enum GovContractSetAside {
+  SMALL_BUSINESS
+  EIGHT_A
+  HUBZONE
+  SDVOSB
+  WOSB
+  FULL_AND_OPEN
+  OTHER
+}
+
+enum GovContactRole {
+  CONTRACTING_OFFICER
+  PROGRAM_MANAGER
+  TECHNICAL_POC
+  SMALL_BUSINESS_REP
+  INTERNAL
+  OTHER
+}
+
+enum GovActivityType {
+  STATUS_CHANGE
+  NOTE
+  DOCUMENT_GENERATED
+  CONTACT_ADDED
+  TASK_CREATED
+}
+
+model GovContract {
+  id    String @id @default(cuid())
+  title String
+
+  solicitationNumber String?
+  agency             String
+  subAgency          String?
+  naicsCode          String?
+  setAsideType       GovContractSetAside?
+  status             GovContractStatus    @default(SOURCES_SOUGHT)
+
+  estimatedValue Float?
+  awardAmount    Float?
+
+  responseDeadline         DateTime?
+  expectedSolicitationDate DateTime?
+  awardDate                DateTime?
+  performancePeriodStart   DateTime?
+  performancePeriodEnd     DateTime?
+  placeOfPerformance       String?
+
+  description String? @db.Text
+  samGovUrl   String?
+  notes       String? @db.Text
+
+  goNoGoNotes            String? @db.Text
+  callScript             String? @db.Text
+  sourcesResponseContent String? @db.Text
+  proposalContent        String? @db.Text
+
+  linkedTaskId String?
+
+  contacts   GovContractContact[]
+  activities GovContractActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([agency])
+  @@index([createdAt])
+}
+
+model GovContractContact {
+  id String @id @default(cuid())
+
+  govContractId String
+  govContract   GovContract @relation(fields: [govContractId], references: [id], onDelete: Cascade)
+
+  name         String
+  title        String?
+  email        String?
+  phone        String?
+  organization String?
+  role         GovContactRole
+  notes        String?        @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([govContractId])
+}
+
+model GovContractActivity {
+  id String @id @default(cuid())
+
+  govContractId String
+  govContract   GovContract @relation(fields: [govContractId], references: [id], onDelete: Cascade)
+
+  type        GovActivityType
+  description String          @db.Text
+
+  oldStatus GovContractStatus?
+  newStatus GovContractStatus?
+
+  createdAt DateTime @default(now())
+
+  @@index([govContractId])
+  @@index([createdAt])
+}
+
+// ============================================
+// GOVERNMENT MARKET RESEARCH
+// ============================================
+
+enum GovSyncSource {
+  SAM_GOV
+  USASPENDING
+}
+
+enum GovSyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model GovOpportunity {
+  id String @id @default(cuid())
+
+  noticeId           String  @unique
+  title              String
+  solicitationNumber String?
+  agency             String
+  subAgency          String?
+
+  naicsCode          String?
+  pscCode            String?
+  classificationCode String?
+  type               String?
+
+  setAsideType String?
+
+  postedDate       DateTime?
+  responseDeadline DateTime?
+  archiveDate      DateTime?
+
+  office String?
+
+  description        String? @db.Text
+  samGovUrl          String?
+  placeOfPerformance String?
+  estimatedValue     Float?
+
+  awardeeName           String?
+  awardeeNameNormalized String?
+  awardeeUei            String?
+  awardDate             DateTime?
+  awardNumber           String?
+
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  contactTitle String?
+
+  additionalInfoLink String?
+  resourceLinks      String[] @default([])
+
+  isActive           Boolean @default(true)
+  isDismissed        Boolean @default(false)
+  isImported         Boolean @default(false)
+  importedContractId String?
+
+  analysis GovOpportunityAnalysis?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([naicsCode])
+  @@index([agency])
+  @@index([postedDate])
+  @@index([isActive])
+  @@index([isImported])
+  @@index([awardeeName])
+}
+
+model GovOpportunityAnalysis {
+  id String @id @default(cuid())
+
+  opportunityId String         @unique
+  opportunity   GovOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  overallScore   Int
+  recommendation String
+
+  strategicFitScore             Int
+  strategicFitReasoning         String @db.Text
+  revenuePotentialScore         Int
+  revenuePotentialReasoning     String @db.Text
+  winProbabilityScore           Int
+  winProbabilityReasoning       String @db.Text
+  competitiveAdvantageScore     Int
+  competitiveAdvantageReasoning String @db.Text
+  relationshipAccessScore       Int
+  relationshipAccessReasoning   String @db.Text
+
+  summary       String @db.Text
+  keyRisks      String @db.Text
+  keyAdvantages String @db.Text
+  finalVerdict  String @db.Text
+
+  analyzedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([overallScore])
+  @@index([analyzedAt])
+}
+
+model GovSpendingRecord {
+  id String @id @default(cuid())
+
+  fiscalYear    Int
+  agencyName    String
+  agencyCode    String?
+  subAgencyName String?
+
+  naicsCode        String?
+  naicsDescription String?
+  pscCode          String?
+
+  totalObligated   Float
+  contractCount    Int
+  avgContractValue Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fiscalYear, agencyName, naicsCode])
+  @@index([fiscalYear])
+  @@index([agencyName])
+  @@index([naicsCode])
+}
+
+model GovAwardedContract {
+  id String @id @default(cuid())
+
+  awardId        String  @unique
+  recipientName  String
+  recipientUei   String?
+  awardAmount    Float
+  totalObligated Float?
+
+  awardingAgency    String
+  awardingSubAgency String?
+  fundingAgency     String?
+  fundingSubAgency  String?
+
+  naicsCode        String?
+  naicsDescription String?
+  pscCode          String?
+  awardType        String?
+  setAsideType     String?
+
+  startDate        DateTime?
+  endDate          DateTime?
+  lastModifiedDate DateTime?
+
+  description        String? @db.Text
+  placeOfPerformance String?
+
+  recipientNameNormalized String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([awardingAgency])
+  @@index([naicsCode])
+  @@index([awardAmount])
+  @@index([startDate])
+  @@index([setAsideType])
+  @@index([recipientNameNormalized])
+}
+
+model GovSyncLog {
+  id String @id @default(cuid())
+
+  source           GovSyncSource
+  status           GovSyncStatus @default(RUNNING)
+  recordsProcessed Int           @default(0)
+  error            String?       @db.Text
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([source])
+  @@index([startedAt])
+}
+
+// ============================================
+// WORKFLOW MAPS (Manual workflow documentation)
+// ============================================
+
+enum WorkflowTriggerType {
+  CONDITION
+  SCHEDULE
+  WORKFLOW_COMPLETED
+}
+
+model Workflow {
+  id           String              @id @default(cuid())
+  name         String
+  description  String?             @db.Text
+  triggerType  WorkflowTriggerType
+  triggerValue String?
+
+  flowData Json?
+
+  attachments WorkflowAttachment[]
+
+  // Self-referential: workflows triggered by completion of another workflow
+  triggeredByWorkflow   Workflow?  @relation("WorkflowTrigger", fields: [triggeredByWorkflowId], references: [id])
+  triggeredByWorkflowId String?
+  triggersWorkflows     Workflow[] @relation("WorkflowTrigger")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([triggerType])
+  @@index([createdAt])
+}
+
+model WorkflowAttachment {
+  id       String @id @default(cuid())
+  url      String
+  filename String
+  type     String // "image" or "video"
+
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([workflowId])
+}
+
+// ============================================
+// FOLLOWUP TEMPLATES & MEETING FOLLOWUPS
+// ============================================
+
+model FollowupTemplate {
+  id     String @id @default(cuid())
+  name   String // e.g. "Sales Followup Email", "Meeting Recap"
+  prompt String @db.Text // AI instructions used with the transcript
+
+  followups MeetingFollowup[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MeetingFollowup {
+  id      String @id @default(cuid())
+  content String @db.Text // AI-generated output
+
+  status String    @default("DRAFT") // "DRAFT" | "SENT"
+  sentTo String? // Recipient email address
+  sentAt DateTime?
+
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  templateId String
+  template   FollowupTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([meetingId])
+  @@index([templateId])
+}
+
+// ============================================
+// CRM: PEOPLE, DEALS, PIPELINES, NOTES, TIMELINE
+// ============================================
+
+enum CrmLifecycleStage {
+  LEAD
+  QUALIFIED
+  OPPORTUNITY
+  CUSTOMER
+  CHURNED
+  DISQUALIFIED
+}
+
+/// Derived engagement bucket. Null means we have no recorded interaction at all.
+enum CrmConnectionStrength {
+  STRONG
+  MEDIUM
+  WEAK
+}
+
+model Person {
+  id String @id @default(cuid())
+
+  email       String? @unique
+  firstName   String?
+  lastName    String?
+  fullName    String?
+  jobTitle    String?
+  phone       String?
+  linkedinUrl String?
+  avatarUrl   String?
+  description String? @db.Text
+
+  lifecycleStage CrmLifecycleStage @default(LEAD)
+  source         String? // e.g. "attio-import", "embed-form", "meeting"
+
+  // Hard suppression. Checked before every outbound send.
+  doNotContact Boolean @default(false)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  ownerId String?
+  owner   User?   @relation("PersonOwner", fields: [ownerId], references: [id])
+
+  attioRecordId String? @unique
+  customFields  Json?
+
+  // Denormalised engagement signals, maintained by lib/crm/engagement.ts.
+  // Recomputed on a cron plus after meeting ingest and sequence reply sync.
+  lastEmailInteractionAt    DateTime?
+  lastCalendarInteractionAt DateTime?
+  nextCalendarEventAt       DateTime?
+  nextCalendarEventTitle    String?
+  connectionStrength        CrmConnectionStrength?
+  engagementComputedAt      DateTime?
+
+  deals               Deal[]                @relation("DealPrimaryPerson")
+  crmNotes            CrmNote[]
+  crmActivities       CrmActivity[]
+  crmListEntries      CrmListEntry[]
+  sequenceEnrollments SequenceEnrollment[]
+  formSubmissions     EmbedFormSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([ownerId])
+  @@index([lifecycleStage])
+  @@index([createdAt])
+  @@index([nextCalendarEventAt])
+  @@index([lastEmailInteractionAt])
+}
+
+model Pipeline {
+  id        String  @id @default(cuid())
+  name      String
+  slug      String  @unique
+  isDefault Boolean @default(false)
+  order     Int     @default(0)
+
+  stages PipelineStage[]
+  deals  Deal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PipelineStage {
+  id          String  @id @default(cuid())
+  name        String
+  order       Int     @default(0)
+  probability Int     @default(0) // 0-100
+  isWon       Boolean @default(false)
+  isLost      Boolean @default(false)
+
+  // The company-level status a deal in this stage contributes. Read by
+  // lib/crm/company-status.ts when recomputing the Company.status mirror.
+  companyStatus CompanyStatus?
+
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  deals Deal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pipelineId, name])
+  @@index([pipelineId])
+}
+
+enum DealPricingType {
+  PROJECT
+  HOURLY
+  RETAINER
+}
+
+enum DealBillingInterval {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+model Deal {
+  id   String @id @default(cuid())
+  name String
+
+  // Total contract value in whole currency units. Derived from pricingItems
+  // whenever a deal has any, so never write it directly alongside them.
+  value    Int    @default(0)
+  currency String @default("USD")
+
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id])
+
+  stageId String
+  stage   PipelineStage @relation(fields: [stageId], references: [id])
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  primaryPersonId String?
+  primaryPerson   Person? @relation("DealPrimaryPerson", fields: [primaryPersonId], references: [id])
+
+  ownerId String?
+  owner   User?   @relation("DealOwner", fields: [ownerId], references: [id])
+
+  closeDate  DateTime?
+  wonAt      DateTime?
+  lostAt     DateTime?
+  lostReason String?
+
+  attioRecordId String? @unique
+  customFields  Json?
+
+  pricingItems   DealPricingItem[]
+  crmNotes       CrmNote[]
+  crmActivities  CrmActivity[]
+  crmListEntries CrmListEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pipelineId])
+  @@index([stageId])
+  @@index([companyId])
+  @@index([primaryPersonId])
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
+// One line of a deal's pricing structure. A deal can mix any number of
+// project, hourly and retainer items; Deal.value is their sum.
+model DealPricingItem {
+  id     String @id @default(cuid())
+  dealId String
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  type  DealPricingType
+  label String?
+
+  // PROJECT: the fixed fee. HOURLY: rate per hour. RETAINER: amount per interval.
+  unitAmount Int @default(0)
+  // PROJECT: always 1. HOURLY: estimated hours. RETAINER: number of billing periods.
+  quantity   Int @default(1)
+  // Only set when type is RETAINER.
+  interval DealBillingInterval?
+
+  notes String?
+  order Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dealId])
+}
+
+model CrmNote {
+  id      String  @id @default(cuid())
+  title   String?
+  content String  @db.Text
+  format  String  @default("plaintext") // "plaintext" | "html" | "markdown"
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  author   User?   @relation("CrmNoteAuthor", fields: [authorId], references: [id])
+
+  // Falls back to the raw Attio actor email when no local user matches
+  authorEmail String?
+
+  attioNoteId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId])
+  @@index([companyId])
+  @@index([dealId])
+  @@index([createdAt])
+}
+
+enum CrmActivityType {
+  NOTE
+  EMAIL_SENT
+  EMAIL_RECEIVED
+  EMAIL_REPLIED
+  EMAIL_BOUNCED
+  MEETING_SCHEDULED
+  MEETING_ACCEPTED
+  MEETING_DECLINED
+  MEETING
+  STAGE_CHANGE
+  FORM_SUBMITTED
+  SEQUENCE_ENROLLED
+  SEQUENCE_STEP_SENT
+  SEQUENCE_STOPPED
+  FIELD_CHANGED
+  TASK_CREATED
+  IMPORTED
+}
+
+// One unified timeline table. Every CRM record surface reads its history here.
+model CrmActivity {
+  id      String          @id @default(cuid())
+  type    CrmActivityType
+  title   String
+  body    String?         @db.Text
+  payload Json?
+
+  // Stable key from the source system (e.g. "attio-task:<uuid>") so repeated
+  // imports and re-syncs stay idempotent
+  externalId String? @unique
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  actorUserId String?
+  actorUser   User?   @relation("CrmActivityActor", fields: [actorUserId], references: [id])
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([personId, occurredAt])
+  @@index([companyId, occurredAt])
+  @@index([dealId, occurredAt])
+  @@index([type])
+  @@index([occurredAt])
+}
+
+enum CrmObjectType {
+  PERSON
+  COMPANY
+  DEAL
+}
+
+model CrmList {
+  id         String        @id @default(cuid())
+  name       String
+  slug       String        @unique
+  objectType CrmObjectType
+
+  entries CrmListEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CrmListEntry {
+  id String @id @default(cuid())
+
+  listId String
+  list   CrmList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  // Attribute values that belong to the entry rather than the underlying record
+  customFields Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([listId])
+  @@index([personId])
+  @@index([companyId])
+  @@index([dealId])
+}
+
+// ============================================
+// MEETING RECORDER (Google Calendar + Recall.ai)
+// ============================================
+
+// Per-person rules deciding which of their meetings get a recording bot.
+model RecordingRule {
+  id String @id @default(cuid())
+
+  // Calendar owner. Must be a Workspace mailbox, since domain-wide delegation
+  // cannot impersonate addresses outside the domain.
+  calendarEmail String  @unique
+  enabled       Boolean @default(true)
+
+  // Optional link to the Studio user this calendar belongs to
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Matching conditions
+  requireExternalAttendee Boolean  @default(true) // Skip internal-only meetings
+  minAttendees            Int      @default(2)
+  titleIncludes           String[] // If non-empty, title must match one of these
+  titleExcludes           String[] // Title matching any of these is skipped
+  skipAllDayEvents        Boolean  @default(true)
+  onlyIfOrganizer         Boolean  @default(false)
+
+  // Bot configuration
+  botName           String @default("Jaro.dev Notetaker")
+  joinMinutesBefore Int    @default(2)
+
+  events CalendarEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+enum RecordingDecision {
+  PENDING
+  SCHEDULED
+  SKIPPED
+  DUPLICATE
+  RECORDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model CalendarEvent {
+  id String @id @default(cuid())
+
+  googleEventId String
+  calendarEmail String // Which calendar this row was synced from
+
+  title       String?
+  description String?  @db.Text
+  startTime   DateTime
+  endTime     DateTime
+  isAllDay    Boolean  @default(false)
+  organizer   String?
+  attendees   String[]
+  // Per-attendee RSVP from Google: [{ email, responseStatus }]
+  // responseStatus: accepted | declined | tentative | needsAction
+  attendeeResponses Json?
+  status      String? // Google status: confirmed | tentative | cancelled
+
+  // Conferencing
+  meetingUrl String?
+  platform   String? // "google_meet" | "zoom" | "microsoft_teams" | "webex"
+
+  decision       RecordingDecision @default(PENDING)
+  decisionReason String?
+
+  // Recall.ai bot
+  recallBotId     String?   @unique
+  botScheduledFor DateTime?
+  botStatus       String?
+
+  // Set once the recording has been ingested into Meeting
+  meetingDbId String?
+
+  ruleId String?
+  rule   RecordingRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([googleEventId, calendarEmail])
+  @@index([startTime])
+  @@index([decision])
+  @@index([meetingUrl, startTime])
+}
+
+// Incremental Google Calendar sync tokens, one row per watched calendar
+model CalendarSyncState {
+  id String @id @default(cuid())
+
+  calendarEmail String    @unique
+  syncToken     String?   @db.Text
+  lastSyncedAt  DateTime?
+  lastError     String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// How far the CRM has read each delegated mailbox, so every run only asks
+// Gmail for messages that arrived since the last one.
+model MailboxSyncState {
+  id String @id @default(cuid())
+
+  mailbox       String    @unique
+  lastSyncedAt  DateTime?
+  // internalDate of the newest message this mailbox has been read up to
+  lastMessageAt DateTime?
+  lastError     String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// EMAIL SEQUENCES
+// ============================================
+
+enum SequenceStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REPLIED
+  BOUNCED
+  UNSUBSCRIBED
+  STOPPED
+  FAILED
+}
+
+model Sequence {
+  id          String         @id @default(cuid())
+  name        String
+  description String?        @db.Text
+  status      SequenceStatus @default(DRAFT)
+
+  // Sending mailbox. Must be an @jaro.dev address.
+  senderEmail String
+  senderName  String?
+
+  // Scheduling. Sends only happen inside the window on allowed weekdays.
+  timezone        String  @default("Europe/London")
+  sendWindowStart Int     @default(9) // Hour of day, 0-23
+  sendWindowEnd   Int     @default(17)
+  sendOnWeekends  Boolean @default(false)
+  dailySendLimit  Int     @default(50) // Per sequence, per day
+
+  // Exit conditions
+  stopOnReply         Boolean @default(true)
+  stopOnMeetingBooked Boolean @default(true)
+
+  // Custom exit criteria: a CrmFilterGroup matched against Person. Anyone in
+  // the sequence who starts matching is stopped, and anyone already matching is
+  // never enrolled in the first place.
+  exitFilters Json?
+
+  // Tracking pixels and link rewriting hurt inbox placement, so opt-in only
+  trackOpens  Boolean @default(false)
+  trackClicks Boolean @default(false)
+
+  // Entry criteria: a CrmFilterGroup (see config/crm-filter-fields.ts) matched
+  // against Person. Null means the sequence has none, in which case the legacy
+  // autoEnrollFormType below still applies.
+  entryFilters Json?
+
+  // Continuously enroll every contact matching the entry criteria
+  autoEnrollEnabled Boolean @default(false)
+  /// Superseded by entryFilters; read only as a fallback for sequences saved
+  /// before entry criteria existed.
+  autoEnrollFormType FormType?
+
+  createdById String?
+  createdBy   User?   @relation("SequenceCreatedBy", fields: [createdById], references: [id])
+
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model SequenceStep {
+  id    String @id @default(cuid())
+  order Int // 1-based
+
+  // Wait measured from the previous step's send, or from enrollment for step 1
+  delayDays  Int @default(0)
+  delayHours Int @default(0)
+
+  subject  String
+  bodyHtml String @db.Text
+
+  // Reply inside the existing Gmail thread rather than starting a new one
+  sendInThread Boolean @default(true)
+
+  sequenceId String
+  sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  messages SequenceMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sequenceId, order])
+  @@index([sequenceId])
+}
+
+model SequenceEnrollment {
+  id     String           @id @default(cuid())
+  status EnrollmentStatus @default(ACTIVE)
+
+  sequenceId String
+  sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  // Sender snapshot taken at enrollment, so editing the sequence later cannot
+  // split an in-flight thread across two mailboxes
+  senderEmail String
+
+  currentStep Int       @default(0) // Steps sent so far
+  nextSendAt  DateTime?
+
+  gmailThreadId String?
+
+  stoppedReason String?
+  completedAt   DateTime?
+
+  messages SequenceMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sequenceId, personId])
+  @@index([status, nextSendAt])
+  @@index([personId])
+}
+
+model SequenceMessage {
+  id String @id @default(cuid())
+
+  enrollmentId String
+  enrollment   SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  stepId String
+  step   SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  toEmail String
+  subject String
+  body    String @db.Text
+
+  gmailMessageId String?
+  gmailThreadId  String?
+  // RFC Message-ID of this send, used as In-Reply-To on the following step
+  rfcMessageId   String?
+
+  sentAt    DateTime?
+  openedAt  DateTime?
+  clickedAt DateTime?
+  repliedAt DateTime?
+  bouncedAt DateTime?
+
+  openCount  Int @default(0)
+  clickCount Int @default(0)
+
+  error String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enrollmentId])
+  @@index([stepId])
+  @@index([gmailThreadId])
+  @@index([sentAt])
+}
+
+// Global do-not-send list, checked before every outbound send
+model Suppression {
+  id     String  @id @default(cuid())
+  email  String  @unique
+  reason String // "unsubscribed" | "bounced" | "complained" | "manual"
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// An operational failure (cron, webhook, integration, outbound email) reported
+// to the operations Slack channel.
+//
+// Rows exist so a failure that repeats every cron tick is posted once per
+// re-notify window rather than hundreds of times a day, and so the history
+// survives past the log retention window.
+enum OpsAlertSeverity {
+  CRITICAL // the run or request failed outright
+  WARNING // the run finished but some items inside it failed
+}
+
+model OpsAlert {
+  id String @id @default(cuid())
+
+  // Stable hash of source + dedupe key, with volatile numbers and ids removed
+  // so the same recurring failure lands on one row.
+  fingerprint String           @unique
+  source      String // "Cron: sync-emails", "Webhook: recall", ...
+  severity    OpsAlertSeverity
+  summary     String
+  errorMessage String?
+  context     Json?
+
+  occurrences    Int       @default(1)
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  // Null when the alert was recorded but Slack delivery never succeeded.
+  lastNotifiedAt DateTime?
+
+  @@index([source])
+  @@index([severity])
+  @@index([lastSeenAt])
+}

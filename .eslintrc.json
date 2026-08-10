@@ -1,0 +1,45 @@
+{
+  "extends": ["plugin:@typescript-eslint/recommended", "plugin:tailwindcss/recommended"],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaFeatures": {
+      "jsx": true
+    },
+    "ecmaVersion": 2021,
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint", "tailwindcss"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "no-async-promise-executor": "off",
+    "quotes": ["error", "double"],
+    "semi": ["error", "always"],
+    "linebreak-style": "off",
+    "indent": ["error", 2, {
+      "ignoredNodes": ["TemplateLiteral"],
+      "SwitchCase": 1
+    }],
+    "no-multiple-empty-lines": ["error", { "max": 1, "maxEOF": 0 }],
+    "no-debugger": "off",
+    "template-curly-spacing": "off"
+  },
+  "settings": {
+    "react": {
+      "version": "detect"
+    }
+  },
+  "globals": {
+    "React": true,
+    "jsdom": true,
+    "JSX": true,
+    "RequestInit": true,
+    "RequestInfo": true
+  },
+  "ignorePatterns": ["node_modules/", ".next/", "out/"],
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"]
+    }
+  ]
+}
