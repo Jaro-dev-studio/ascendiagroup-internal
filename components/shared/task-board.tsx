@@ -1,12 +1,26 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CalendarDays, GripVertical, Trash2, User } from "lucide-react";
+import {
+  CalendarDays,
+  EllipsisVertical,
+  GripVertical,
+  Trash2,
+  User,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { TaskStatus } from "@prisma/client";
 
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { deleteTask, setTaskStatus } from "@/lib/actions/tasks";
 import { cn, daysUntil, formatDate } from "@/lib/utils";
 
@@ -120,16 +134,39 @@ export function TaskBoard({
                             {task.title}
                           </p>
                         </button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Delete task"
-                          disabled={isPending}
-                          onClick={() => remove(task.id)}
-                          className="opacity-0 transition-opacity group-hover:opacity-100"
-                        >
-                          <Trash2 className="size-3.5 text-danger-600" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Move or delete "${task.title}"`}
+                              disabled={isPending}
+                            >
+                              <EllipsisVertical className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                            {COLUMNS.filter(
+                              (target) => target.status !== task.status
+                            ).map((target) => (
+                              <DropdownMenuItem
+                                key={target.status}
+                                onSelect={() => move(task.id, target.status)}
+                              >
+                                {target.label}
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => remove(task.id)}
+                              className="text-danger-600"
+                            >
+                              <Trash2 className="mr-2 size-3.5" />
+                              Delete task
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
 
                       <div className="mt-2 flex flex-wrap items-center gap-2">

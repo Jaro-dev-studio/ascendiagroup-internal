@@ -310,8 +310,8 @@ export function FormBuilder({
                       <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-primary-50 px-2 py-1 text-xs text-primary-700">
                         <GitBranch className="size-3" />
                         Shows when &quot;{parent.label}&quot;{" "}
-                        {titleCase(field.conditionOperator ?? "")}{" "}
-                        {field.conditionValues.join(", ")}
+                        {titleCase(field.conditionOperator ?? "").toLowerCase()}{" "}
+                        {field.conditionValues.map(titleCase).join(", ")}
                       </p>
                     )}
                   </div>

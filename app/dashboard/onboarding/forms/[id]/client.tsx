@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Copy, Eye, Loader2, Send, Settings2 } from "lucide-react";
+import { Copy, ExternalLink, Eye, Loader2, Send, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ConditionOperator, FieldType } from "@prisma/client";
 
@@ -288,20 +288,22 @@ export function FormDetailClient({
                 >
                   <Copy className="size-4" />
                 </Button>
+                <Button size="icon-sm" variant="ghost" asChild>
+                  <a
+                    href={inviteLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open the form in a new tab"
+                  >
+                    <ExternalLink className="size-4" />
+                  </a>
+                </Button>
               </div>
               <DialogFooter className="flex-row justify-end gap-2">
-                <Button
-                  onClick={() => {
-                    setInviteLink(null);
-                    setInvite({
-                      clientId: "",
-                      practiceName: "",
-                      contactName: "",
-                      contactEmail: "",
-                    });
-                  }}
-                >
-                  Create another
+                <Button asChild>
+                  <a href={inviteLink} target="_blank" rel="noreferrer">
+                    Open form
+                  </a>
                 </Button>
                 <Button variant="ghost" onClick={() => setIsInviteOpen(false)}>
                   Done

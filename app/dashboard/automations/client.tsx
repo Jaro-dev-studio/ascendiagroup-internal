@@ -483,7 +483,7 @@ export function AutomationsClient({
                     key={index}
                     className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-end"
                   >
-                    <div className="flex flex-1 flex-col gap-1.5">
+                    <div className="flex flex-1 flex-col gap-2">
                       <Input
                         value={item.title}
                         onChange={(event) => {
@@ -492,6 +492,18 @@ export function AutomationsClient({
                           setTemplateDraft({ ...templateDraft, items });
                         }}
                         placeholder="Task title"
+                      />
+                      <Input
+                        value={item.description}
+                        onChange={(event) => {
+                          const items = [...templateDraft.items];
+                          items[index] = {
+                            ...item,
+                            description: event.target.value,
+                          };
+                          setTemplateDraft({ ...templateDraft, items });
+                        }}
+                        placeholder="Optional detail for whoever picks this up"
                       />
                     </div>
 
