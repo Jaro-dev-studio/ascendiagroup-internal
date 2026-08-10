@@ -120,7 +120,7 @@ export async function buildClaudeProjectContext(
 ): Promise<{ data: { content: string; documents: number } | null; error: string | null }> {
   try {
     await requireStaff();
-    console.log(`[KnowledgeBase] building Claude project context...`);
+    console.log("[KnowledgeBase] building Claude project context...");
 
     const client = await prisma.client.findUnique({
       where: { id: clientId },

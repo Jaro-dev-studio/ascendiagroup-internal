@@ -360,7 +360,7 @@ export function StrategyDetailClient({
       </div>
 
       <Dialog open={isEditingDetails} onOpenChange={setIsEditingDetails}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto scrollbar-thin">
+        <DialogContent className="scrollbar-thin max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit strategy</DialogTitle>
           </DialogHeader>

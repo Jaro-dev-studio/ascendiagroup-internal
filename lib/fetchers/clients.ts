@@ -9,13 +9,13 @@ export async function listClients(search?: string) {
     const clients = await prisma.client.findMany({
       where: search
         ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { contactName: { contains: search, mode: "insensitive" } },
-              { contactEmail: { contains: search, mode: "insensitive" } },
-              { city: { contains: search, mode: "insensitive" } },
-            ],
-          }
+          OR: [
+            { name: { contains: search, mode: "insensitive" } },
+            { contactName: { contains: search, mode: "insensitive" } },
+            { contactEmail: { contains: search, mode: "insensitive" } },
+            { city: { contains: search, mode: "insensitive" } },
+          ],
+        }
         : undefined,
       orderBy: [{ status: "asc" }, { name: "asc" }],
       include: {

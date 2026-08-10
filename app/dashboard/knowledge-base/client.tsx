@@ -436,7 +436,7 @@ export function KnowledgeBaseClient({
           </CardHeader>
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scrollbar-thin">
+            <div className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
               {messages.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
                   <Sparkles className="size-6 text-primary-300" />
@@ -533,7 +533,7 @@ export function KnowledgeBaseClient({
         open={documentDraft !== null}
         onOpenChange={(open) => !open && setDocumentDraft(null)}
       >
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto scrollbar-thin">
+        <DialogContent className="scrollbar-thin max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {documentDraft?.id ? "Edit document" : "Add document"}

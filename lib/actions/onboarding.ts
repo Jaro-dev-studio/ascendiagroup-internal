@@ -590,7 +590,7 @@ export async function processSubmission(input: {
         projectId: project.id,
         actorId: user.id,
         type: "PROJECT_CREATED",
-        title: `Project created from intake`,
+        title: "Project created from intake",
         description: project.name,
         link: `/dashboard/projects/${project.id}`,
       },

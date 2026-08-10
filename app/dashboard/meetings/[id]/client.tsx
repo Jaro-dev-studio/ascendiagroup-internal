@@ -181,7 +181,7 @@ export function MeetingDetailClient({
             </CardHeader>
             <CardContent>
               {meeting.transcript ? (
-                <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-secondary-700 scrollbar-thin">
+                <pre className="scrollbar-thin max-h-96 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-secondary-700">
                   {meeting.transcript}
                 </pre>
               ) : (

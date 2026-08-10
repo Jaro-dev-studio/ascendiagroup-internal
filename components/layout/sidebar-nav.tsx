@@ -43,7 +43,7 @@ export function SidebarNav({ role, name, email }: SidebarNavProps) {
   }
 
   const navigation = (
-    <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 scrollbar-thin">
+    <nav className="scrollbar-thin flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-1">
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-secondary-400">
@@ -72,7 +72,7 @@ export function SidebarNav({ role, name, email }: SidebarNavProps) {
 
   const footer = (
     <div className="border-t border-border p-3">
-      <div className="flex items-center gap-3 rounded-md px-2 py-2">
+      <div className="flex items-center gap-3 rounded-md p-2">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary-100 text-xs font-semibold text-secondary-700">
           {initials(name || email)}
         </span>
@@ -137,7 +137,7 @@ export function SidebarNav({ role, name, email }: SidebarNavProps) {
       )}
 
       <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card lg:sticky lg:top-0 lg:flex lg:h-screen">
-        <div className="border-b border-border px-4 py-4">
+        <div className="border-b border-border p-4">
           <Link href="/dashboard">
             <Logo />
           </Link>

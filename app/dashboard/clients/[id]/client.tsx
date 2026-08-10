@@ -207,7 +207,7 @@ export function ClientDetailClient({ client }: { client: ClientDetail }) {
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="w-full justify-start overflow-x-auto scrollbar-thin">
+        <TabsList className="scrollbar-thin w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
           <TabsTrigger value="delivery">Delivery</TabsTrigger>

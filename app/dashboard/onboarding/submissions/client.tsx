@@ -164,7 +164,7 @@ export function SubmissionsClient({
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
-          <div className="overflow-x-auto scrollbar-thin">
+          <div className="scrollbar-thin overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-border bg-muted text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>

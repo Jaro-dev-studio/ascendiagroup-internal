@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Copy, Loader2, Mic, Plus, Webhook } from "lucide-react";
+import { Loader2, Mic, Plus, Webhook } from "lucide-react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/shared/empty-state";
@@ -214,7 +214,7 @@ export function MeetingsClient({
       )}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto scrollbar-thin">
+        <DialogContent className="scrollbar-thin max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Log a call</DialogTitle>
             <DialogDescription>

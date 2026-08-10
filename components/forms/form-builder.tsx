@@ -180,13 +180,13 @@ export function FormBuilder({
       const options =
         draft.type === "SERVICE_SELECT"
           ? draft.optionsText
-              .split("\n")
-              .map((option) => option.trim())
-              .filter(Boolean)
+            .split("\n")
+            .map((option) => option.trim())
+            .filter(Boolean)
           : draft.optionsText
-              .split("\n")
-              .map((option) => option.trim())
-              .filter(Boolean);
+            .split("\n")
+            .map((option) => option.trim())
+            .filter(Boolean);
 
       const { error } = await saveFormField({
         formId,
@@ -343,7 +343,7 @@ export function FormBuilder({
       </CardContent>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto scrollbar-thin">
+        <DialogContent className="scrollbar-thin max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingId ? "Edit question" : "Add question"}
@@ -515,8 +515,8 @@ export function FormBuilder({
                                   "conditionValues",
                                   isSelected
                                     ? draft.conditionValues.filter(
-                                        (value) => value !== option
-                                      )
+                                      (value) => value !== option
+                                    )
                                     : [...draft.conditionValues, option]
                                 )
                               }

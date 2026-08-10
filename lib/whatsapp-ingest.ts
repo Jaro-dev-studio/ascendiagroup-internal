@@ -50,23 +50,23 @@ export async function ingestWhatsAppMessage(input: {
 
   const message = input.existingId
     ? await prisma.whatsAppMessage.update({
-        where: { id: input.existingId },
-        data: { clientId: input.clientId },
-      })
+      where: { id: input.existingId },
+      data: { clientId: input.clientId },
+    })
     : await prisma.whatsAppMessage.create({
-        data: {
-          clientId: input.clientId,
-          externalId: input.externalId ?? null,
-          fromNumber: input.fromNumber,
-          toNumber: input.toNumber ?? null,
-          senderName: input.senderName ?? null,
-          body: input.body,
-          mediaUrl: input.mediaUrl ?? null,
-          mediaType: input.mediaType ?? null,
-          sentAt: input.sentAt,
-          direction: input.direction,
-        },
-      });
+      data: {
+        clientId: input.clientId,
+        externalId: input.externalId ?? null,
+        fromNumber: input.fromNumber,
+        toNumber: input.toNumber ?? null,
+        senderName: input.senderName ?? null,
+        body: input.body,
+        mediaUrl: input.mediaUrl ?? null,
+        mediaType: input.mediaType ?? null,
+        sentAt: input.sentAt,
+        direction: input.direction,
+      },
+    });
 
   if (!input.clientId) {
     console.log("[WhatsApp] no matching client, message left unassigned");
