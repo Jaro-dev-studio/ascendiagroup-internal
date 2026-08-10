@@ -3,6 +3,7 @@ import "server-only";
 import type { Client, IntegrationProvider } from "@prisma/client";
 
 import prisma from "@/lib/prisma";
+import { agencyAnalyticsQuery } from "./agency-analytics";
 import { getOAuthAccessToken } from "./google-auth";
 import { getIntegrationCredentials } from "./store";
 
@@ -93,38 +94,38 @@ async function fetchAgencyAnalyticsMetrics(
     `[Reporting] fetching AgencyAnalytics campaign ${link.externalId} stats...`
   );
 
-  const response = await fetch(
-    `https://api.agencyanalytics.com/v1/campaigns/${link.externalId}`,
-    {
-      headers: { "X-Api-Key": credentials.apiKey, Accept: "application/json" },
-    }
-  );
+  const response = await agencyAnalyticsQuery(credentials.apiKey, {
+    asset: "analytics",
+    connector_type: "google-analytics-4",
+    campaign_id: link.externalId,
+    operation: "read",
+    fields: ["sessions", "users", "conversions", "bounce_rate"],
+    limit: 1,
+  });
 
-  if (!response.ok) {
+  if (response.status !== "success") {
     throw new Error(
-      `AgencyAnalytics HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`
+      `AgencyAnalytics: ${response.messages.join(", ") || `HTTP ${response.code}`}`
     );
   }
 
-  const payload = (await response.json()) as {
-    data?: Record<string, unknown>;
-  };
-  const data = payload.data ?? {};
+  const row = response.results[0] ?? {};
   const metrics: MetricInput[] = [];
 
   for (const [key, label] of [
-    ["visits", "Website visits"],
+    ["sessions", "Website sessions"],
+    ["users", "Unique users"],
     ["conversions", "Conversions"],
-    ["leads", "Leads"],
-    ["calls", "Calls"],
+    ["bounce_rate", "Bounce rate"],
   ] as const) {
-    const raw = data[key];
-    if (typeof raw === "number") {
+    const raw = Number(row[key]);
+    if (Number.isFinite(raw)) {
       metrics.push({
         provider: "AGENCY_ANALYTICS",
         metricKey: key,
         label,
         value: raw,
+        unit: key === "bounce_rate" ? "%" : undefined,
       });
     }
   }
@@ -151,7 +152,7 @@ async function fetchGoogleAdsMetrics(client: Client): Promise<MetricInput[]> {
   });
 
   const response = await fetch(
-    `https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:searchStream`,
+    `https://googleads.googleapis.com/v21/customers/${customerId}/googleAds:searchStream`,
     {
       method: "POST",
       headers: {

@@ -7,7 +7,8 @@
     "start": "next start",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint --fix --ext .js,.jsx,.ts,.tsx .",
     "db:push": "prisma db push",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "verify:integrations": "tsx --env-file=.env scripts/verify-integrations.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.77.0",

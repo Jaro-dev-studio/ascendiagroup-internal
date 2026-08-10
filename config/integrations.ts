@@ -224,7 +224,7 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     summary:
       "Syncs campaign KPIs from AgencyAnalytics into the internal and client-facing dashboards.",
     capabilities: ["Import campaign KPIs", "Feed weekly and monthly reports"],
-    docsUrl: "https://agencyanalytics.com/api-docs",
+    docsUrl: "https://help.agencyanalytics.com/en/articles/8219563-using-the-agencyanalytics-api",
     fields: [
       { key: "apiKey", label: "API key", type: "password", required: true },
     ],

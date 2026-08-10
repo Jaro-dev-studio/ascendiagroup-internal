@@ -2,6 +2,7 @@ import "server-only";
 
 import type { IntegrationProvider } from "@prisma/client";
 
+import { agencyAnalyticsQuery } from "./agency-analytics";
 import { getGoogleAccessToken, getOAuthAccessToken } from "./google-auth";
 import type { IntegrationCredentials } from "./store";
 
@@ -161,7 +162,7 @@ async function testGoogleAds(
   });
 
   const response = await fetch(
-    "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+    "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -186,23 +187,25 @@ async function testGoogleAds(
 async function testAgencyAnalytics(
   credentials: IntegrationCredentials
 ): Promise<ConnectionResult> {
-  const response = await fetch(
-    "https://api.agencyanalytics.com/v1/campaigns?limit=1",
-    {
-      headers: {
-        "X-Api-Key": credentials.apiKey,
-        Accept: "application/json",
-      },
-    }
-  );
+  const response = await agencyAnalyticsQuery(credentials.apiKey, {
+    asset: "campaign",
+    operation: "read",
+    fields: ["id", "company", "url"],
+    limit: 1,
+  });
 
-  if (!response.ok) return { ok: false, message: await readError(response) };
+  if (response.status !== "success") {
+    return {
+      ok: false,
+      message: response.messages.join(", ") || "AgencyAnalytics rejected the key",
+    };
+  }
 
-  const payload = (await response.json()) as { data?: unknown[] };
+  const first = response.results[0] as { company?: string } | undefined;
   return {
     ok: true,
-    message: `${payload.data?.length ?? 0} campaigns visible.`,
-    accountLabel: "AgencyAnalytics",
+    message: `${response.results.length} campaign(s) visible.`,
+    accountLabel: first?.company ?? "AgencyAnalytics",
   };
 }
 
