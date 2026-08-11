@@ -5,7 +5,7 @@ party integrations connected**. Integration keys are supplied by the client afte
 payment, so the integration-dependent screens are shown and narrated as future
 state rather than clicked.
 
-**Full runtime:** roughly 12 minutes. A 3 minute short cut is described at the end.
+**Full runtime:** roughly 13 minutes. A 3 minute short cut is described at the end.
 
 ---
 
@@ -26,7 +26,7 @@ live against the database, or as a real UI you narrate over.
 | Calls | Logging a call, transcript, action items | Recorder webhook, Claude summary |
 | Knowledge base | Documents, export, Claude project link | Ask Claude answers |
 | WhatsApp | Manual capture, assignment, timeline | WhatsApp Business webhook |
-| Strategy | Source selection screen | The generated roadmap |
+| Strategy | Roadmap, editing, push to board | The Claude generation step only |
 | Reporting | Reports, publishing, client portal | KPI sync from ad platforms |
 | Integrations | The whole page | Connecting a provider |
 
@@ -351,38 +351,59 @@ Click **Webhook URL** to copy it.
 
 ---
 
-## Scene 12 — Strategy roadmap *(mostly narrated)* (10:50–11:40)
+## Scene 12 — Strategy roadmap (10:50–11:50)
 
 **Navigate:** `/dashboard/strategies` → **Generate strategy**
 
-**Show and do — the source selection is live:**
+**Show — the source selection is live:**
 
 1. Pick the practice.
-2. Tick the **onboarding submission** from Scene 7 — note it shows the answer
-   count and date.
+2. Tick the **onboarding submission** from Scene 7 — it shows the answer count and
+   date.
 3. Tick the **call transcript** from Scene 9.
 4. Type a line into **extra context**.
 5. Point at the amber banner explaining Claude is not connected, and at the
    disabled **Generate roadmap** button. Do not click it.
 
 > "Two sources, both already in the system: what they told us on the sales call,
-> and what they told us on the onboarding form. Nobody re-types anything."
+> and what they told us on the onboarding form. Nobody re-types anything. With
+> your Claude key in, this button writes the roadmap. Here is one we have already
+> got for this practice."
 
-**Then narrate the output:**
+**Then open the existing roadmap — everything from here is live:**
 
-> "With Claude connected, this produces the 90 day roadmap: a summary, the
-> positioning, the audience, and — importantly — a risks section that flags what
-> the sources did not cover instead of guessing. Then three phases, 30, 60 and 90
-> days, each with four to seven concrete actions carrying a priority and a
-> delivery lane. The account manager edits any of it inline, and one Push to board
-> button turns every action into a scheduled task with the due dates staged across
-> the three phases."
+1. Go back to `/dashboard/strategies` and open
+   *"Bright Smile Dental — 90 day growth roadmap"*.
+2. Walk the top row: **Summary**, **Positioning**, **Audience**.
+3. Stop on **Risks and open questions**.
 
-> "That is the piece that takes a strategist half a day today."
+> "This is the part people do not expect. It flags what the sources did not cover
+> — no budget, no target patient volume, no confirmed Business Profile ownership —
+> instead of quietly inventing them. That becomes the agenda for the kickoff call."
+
+4. Walk the three phases: 30, 60 and 90 days. Point at an action's **priority**
+   and its **delivery lane** chip.
+
+**Do, on camera:**
+
+1. Hover an action and click the pencil. Change a word in the title, save, and
+   show it update.
+
+> "It is a working document, not a read-only AI output. The account manager owns
+> it."
+
+2. Click **Push to board**.
+3. Land on the delivery board and show the 14 actions arriving as real tasks, with
+   due dates staged across the 30, 60 and 90 day horizons.
+4. Go back to the roadmap and point at the green **On board** markers now against
+   each action.
+
+> "One button and the plan becomes scheduled work. That is the piece that takes a
+> strategist half a day today."
 
 ---
 
-## Scene 13 — Reporting and the client portal (11:40–12:20)
+## Scene 13 — Reporting and the client portal (11:50–12:30)
 
 **Navigate:** `/dashboard/reporting`
 
@@ -404,13 +425,14 @@ Click **Webhook URL** to copy it.
 copied in Scene 4:
 
 - Delivery progress bar and what the team is working on
+- **Your 90 day plan** — the approved roadmap from Scene 12, in the client's words
 - The published report you just created
 
 > "The practice gets one link. No login, no chasing for a status update."
 
 ---
 
-## Scene 14 — Integrations and team (12:20–13:00)
+## Scene 14 — Integrations and team (12:30–13:10)
 
 **Navigate:** `/dashboard/integrations`
 
