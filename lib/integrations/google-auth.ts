@@ -1,144 +1,117 @@
-import { google } from "googleapis";
+import "server-only";
 
-// Taken from googleapis' own bundled google-auth-library so the client type
-// always matches the one the API constructors accept.
-type ImpersonatedJwt = InstanceType<typeof google.auth.JWT>;
+import crypto from "crypto";
 
-/**
- * Google Workspace integration is backed by a single service account with
- * domain-wide delegation. Every call impersonates a specific @jaro.dev mailbox,
- * so no per-user OAuth flow is needed.
- *
- * Required env:
- * - GOOGLE_SERVICE_ACCOUNT_JSON: the full service account key JSON (single line)
- * - GOOGLE_WORKSPACE_DOMAIN: e.g. "jaro.dev"
- */
-
-export const CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar",
-];
-
-export const GMAIL_SEND_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.readonly",
-];
-
-export const DIRECTORY_SCOPES = [
-  "https://www.googleapis.com/auth/admin.directory.user.readonly",
-];
-
-interface ServiceAccountKey {
+interface ServiceAccount {
   client_email: string;
   private_key: string;
-  project_id?: string;
+  token_uri?: string;
 }
 
-let cachedKey: ServiceAccountKey | null = null;
-
-export function getWorkspaceDomain(): string {
-  return process.env.GOOGLE_WORKSPACE_DOMAIN || "jaro.dev";
+function base64Url(input: Buffer | string) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-/** True when the mailbox belongs to the delegated Workspace domain. */
-export function isWorkspaceMailbox(email: string): boolean {
-  return email.toLowerCase().trim().endsWith(`@${getWorkspaceDomain()}`);
+export function parseServiceAccount(raw: string): ServiceAccount {
+  const text = raw.trim().startsWith("{")
+    ? raw
+    : Buffer.from(raw, "base64").toString("utf8");
+  const parsed = JSON.parse(text) as ServiceAccount;
+
+  if (!parsed.client_email || !parsed.private_key) {
+    throw new Error("Service account JSON is missing client_email or private_key");
+  }
+
+  return parsed;
 }
 
 /**
- * Parses the service account key from env. Accepts raw JSON or base64-encoded
- * JSON, since some hosts mangle multi-line secrets.
+ * Exchanges a service account for an access token using the JWT bearer flow.
+ * Avoids pulling in the full googleapis client for two REST calls.
  */
-export function getServiceAccountKey(): ServiceAccountKey | null {
-  if (cachedKey) return cachedKey;
+export async function getGoogleAccessToken(
+  serviceAccountJson: string,
+  scopes: string[],
+  subject?: string
+): Promise<string> {
+  const account = parseServiceAccount(serviceAccountJson);
+  const tokenUri = account.token_uri ?? "https://oauth2.googleapis.com/token";
+  const issuedAt = Math.floor(Date.now() / 1000);
 
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) return null;
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64Url(
+    JSON.stringify({
+      iss: account.client_email,
+      scope: scopes.join(" "),
+      aud: tokenUri,
+      exp: issuedAt + 3600,
+      iat: issuedAt,
+      ...(subject ? { sub: subject } : {}),
+    })
+  );
 
-  try {
-    const json = raw.trim().startsWith("{")
-      ? raw
-      : Buffer.from(raw, "base64").toString("utf8");
+  const signature = base64Url(
+    crypto
+      .createSign("RSA-SHA256")
+      .update(`${header}.${claims}`)
+      .sign(account.private_key.replace(/\\n/g, "\n"))
+  );
 
-    const parsed = JSON.parse(json) as ServiceAccountKey;
-
-    if (!parsed.client_email || !parsed.private_key) {
-      console.error(
-        "[Google Auth] service account JSON is missing client_email or private_key"
-      );
-      return null;
-    }
-
-    // Escaped newlines survive most env plumbing but break the PEM parser
-    cachedKey = {
-      ...parsed,
-      private_key: parsed.private_key.replace(/\\n/g, "\n"),
-    };
-
-    return cachedKey;
-  } catch (error) {
-    console.error("[Google Auth] failed to parse GOOGLE_SERVICE_ACCOUNT_JSON:", error);
-    return null;
-  }
-}
-
-export function isGoogleWorkspaceConfigured(): boolean {
-  return getServiceAccountKey() !== null;
-}
-
-/**
- * Builds a JWT client that impersonates `subject` for the given scopes.
- * Returns null when credentials are not configured, so callers can degrade
- * gracefully instead of throwing at import time.
- */
-export function getImpersonatedClient(
-  subject: string,
-  scopes: string[]
-): ImpersonatedJwt | null {
-  const key = getServiceAccountKey();
-  if (!key) {
-    console.error(
-      "[Google Auth] GOOGLE_SERVICE_ACCOUNT_JSON is not configured; cannot impersonate"
-    );
-    return null;
-  }
-
-  if (!isWorkspaceMailbox(subject)) {
-    console.error(
-      `[Google Auth] refusing to impersonate ${subject}: not on @${getWorkspaceDomain()}`
-    );
-    return null;
-  }
-
-  return new google.auth.JWT({
-    email: key.client_email,
-    key: key.private_key,
-    scopes,
-    subject,
+  const response = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: `${header}.${claims}.${signature}`,
+    }),
   });
+
+  const payload = (await response.json()) as {
+    access_token?: string;
+    error_description?: string;
+    error?: string;
+  };
+
+  if (!response.ok || !payload.access_token) {
+    throw new Error(
+      payload.error_description || payload.error || "Google token exchange failed"
+    );
+  }
+
+  return payload.access_token;
 }
 
-/**
- * Verifies that delegation actually works for a mailbox by minting a token.
- * Used by the integrations UI and setup checks.
- */
-export async function verifyDelegation(
-  subject: string,
-  scopes: string[]
-): Promise<{ data: { ok: true } | null; error: string | null }> {
-  try {
-    const client = getImpersonatedClient(subject, scopes);
-    if (!client) {
-      return { data: null, error: "Google service account is not configured" };
-    }
+export async function getOAuthAccessToken(credentials: {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}): Promise<string> {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: credentials.refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
 
-    console.log(`[Google Auth] verifying delegation for ${subject}...`);
-    await client.authorize();
-    console.log(`[Google Auth] delegation verified for ${subject}`);
+  const payload = (await response.json()) as {
+    access_token?: string;
+    error_description?: string;
+    error?: string;
+  };
 
-    return { data: { ok: true }, error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[Google Auth] delegation failed for ${subject}:`, message);
-    return { data: null, error: message };
+  if (!response.ok || !payload.access_token) {
+    throw new Error(
+      payload.error_description || payload.error || "Google OAuth refresh failed"
+    );
   }
+
+  return payload.access_token;
 }

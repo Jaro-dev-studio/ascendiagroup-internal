@@ -1,32 +1,69 @@
-import { authOptions } from "@/authOptions";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
+import Link from "next/link";
+import { BookOpen } from "lucide-react";
+
+import { EmptyState } from "@/components/shared/empty-state";
+import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
+import { requireStaff } from "@/lib/auth-helpers";
+import { listClientOptions } from "@/lib/fetchers/clients";
+import { getKnowledgeBase, getKnowledgeCounts } from "@/lib/fetchers/knowledge";
+import { isIntegrationConnected } from "@/lib/integrations/store";
+
 import { KnowledgeBaseClient } from "./client";
 
-export default async function KnowledgeBasePage() {
-  const session = await getServerSession(authOptions);
+export const metadata = { title: "Knowledge base" };
 
-  if (!session?.user?.email) {
-    redirect("/auth/signin");
+export default async function KnowledgeBasePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  await requireStaff();
+  const { clientId } = await searchParams;
+
+  const [{ data: clients }, { data: counts }, isClaudeConnected] =
+    await Promise.all([
+      listClientOptions(),
+      getKnowledgeCounts(),
+      isIntegrationConnected("CLAUDE"),
+    ]);
+
+  if (!clients || clients.length === 0) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Knowledge base"
+          description="One searchable context store per practice, connected to Claude."
+        />
+        <EmptyState
+          icon={BookOpen}
+          title="No clients yet"
+          description="Add a client and their onboarding answers, calls and WhatsApp threads will build up here."
+          action={
+            <Button asChild>
+              <Link href="/dashboard/clients/new">Add client</Link>
+            </Button>
+          }
+        />
+      </div>
+    );
   }
 
-  const currentUser = await prisma.user.findUnique({
-    where: { email: session.user.email },
-  });
+  const activeClientId = clientId || clients[0].id;
+  const { data, error } = await getKnowledgeBase(activeClientId);
 
-  if (!currentUser || currentUser.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
-
-  const documents = await prisma.knowledgeBaseDocument.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: {
-        select: { chunks: true },
-      },
-    },
-  });
-
-  return <KnowledgeBaseClient documents={documents} />;
+  return (
+    <KnowledgeBaseClient
+      clients={clients.map((client) => ({
+        ...client,
+        documentCount: counts?.[client.id] ?? 0,
+      }))}
+      activeClientId={activeClientId}
+      client={data?.client ?? null}
+      documents={data?.documents ?? []}
+      conversation={data?.conversation ?? null}
+      isClaudeConnected={isClaudeConnected}
+      error={error}
+    />
+  );
 }

@@ -18,11 +18,6 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "types": [
-      "vitest",
-      "./prisma/types.d.ts",
-      "./types/speech-recognition.d.ts"
-    ],
     "plugins": [
       {
         "name": "next"

@@ -8,10 +8,10 @@ function Skeleton({
     <div
       className={cn(
         "relative isolate overflow-hidden rounded-md",
-        "bg-background-secondary dark:bg-background-dark",
+        "bg-muted",
         "before:absolute before:inset-0 before:-translate-x-full",
-        "before:animate-skeleton before:bg-gradient-to-r",
-        "before:from-transparent before:via-text-secondary/20 dark:before:via-text-light/10 before:to-transparent",
+        "before:animate-shimmer before:bg-gradient-to-r",
+        "before:from-transparent before:via-secondary-300/50 before:to-transparent",
         className
       )}
       {...props}

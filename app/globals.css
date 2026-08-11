@@ -1,0 +1,144 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Ascendiagroup brand */
+  --color-primary: #3b82f6;
+  --color-secondary: #1e293b;
+  --color-accent: #10b981;
+
+  /* RGB channel mirrors of the brand tokens so Tailwind can apply alpha */
+  --primary: 59 130 246;
+  --primary-foreground: 255 255 255;
+  --secondary: 30 41 59;
+  --secondary-foreground: 248 250 252;
+  --accent: 16 185 129;
+  --accent-foreground: 255 255 255;
+
+  --background: 246 248 251;
+  --background-secondary: 255 255 255;
+  --background-tertiary: 241 245 249;
+  --foreground: 15 23 42;
+
+  --card: 255 255 255;
+  --card-foreground: 15 23 42;
+  --popover: 255 255 255;
+  --popover-foreground: 15 23 42;
+
+  --muted: 241 245 249;
+  --muted-foreground: 100 116 139;
+
+  --border: 226 232 240;
+  --input: 226 232 240;
+  --ring: 59 130 246;
+
+  --success: 16 185 129;
+  --warning: 245 158 11;
+  --destructive: 239 68 68;
+  --destructive-foreground: 255 255 255;
+
+  --radius: 0.75rem;
+}
+
+* {
+  @apply border-border;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-background text-foreground font-sans antialiased;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Thin, unobtrusive scrollbars for dense dashboard surfaces */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border)) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--border));
+  border-radius: 9999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Rich text produced by Claude */
+.prose-brand {
+  @apply text-sm leading-relaxed text-foreground;
+}
+
+.prose-brand h1,
+.prose-brand h2,
+.prose-brand h3 {
+  @apply mb-2 mt-4 font-semibold text-foreground;
+}
+
+.prose-brand h1 {
+  @apply text-lg;
+}
+
+.prose-brand h2 {
+  @apply text-base;
+}
+
+.prose-brand h3 {
+  @apply text-sm;
+}
+
+.prose-brand p {
+  @apply mb-3;
+}
+
+.prose-brand ul {
+  @apply mb-3 ml-4 list-disc;
+}
+
+.prose-brand ol {
+  @apply mb-3 ml-4 list-decimal;
+}
+
+.prose-brand li {
+  @apply mb-1;
+}
+
+.prose-brand a {
+  @apply text-primary underline;
+}
+
+.prose-brand code {
+  @apply rounded bg-muted px-1 py-0.5 font-mono text-xs;
+}
+
+.prose-brand strong {
+  @apply font-semibold;
+}
+
+.prose-brand table {
+  @apply mb-3 w-full text-left text-xs;
+}
+
+.prose-brand th,
+.prose-brand td {
+  @apply border border-border px-2 py-1;
+}

@@ -1,37 +1,19 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/authOptions";
-import prisma from "@/lib/prisma";
-import { getAllowedPagePaths, getLandingPath, isPathAllowed } from "@/lib/page-access/resolve";
+import { requireStaff } from "@/lib/auth-helpers";
+import { getDashboardOverview } from "@/lib/fetchers/dashboard";
+
+import { DashboardClient } from "./client";
+
+export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  const session = await getServerSession(authOptions);
+  const user = await requireStaff();
+  const { data, error } = await getDashboardOverview(user.id);
 
-  if (!session?.user?.email) {
-    redirect("/");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-  });
-
-  if (!user) {
-    redirect("/");
-  }
-
-  const allowedPaths = await getAllowedPagePaths(user);
-
-  // Prefer the role's usual landing page, falling back to whatever access allows
-  const preferredLanding =
-    user.role === "CLIENT"
-      ? "/dashboard/client-tasks"
-      : user.role === "DEVELOPER"
-        ? "/dashboard/tasks"
-        : "/dashboard/overview";
-
-  if (isPathAllowed(allowedPaths, preferredLanding)) {
-    redirect(preferredLanding);
-  }
-
-  redirect(getLandingPath(allowedPaths));
+  return (
+    <DashboardClient
+      overview={data}
+      error={error}
+      firstName={(user.name ?? user.email).split(" ")[0]}
+    />
+  );
 }

@@ -1,58 +1,38 @@
-import { Suspense } from "react";
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/authOptions";
-import prisma from "@/lib/prisma";
-import { getTasks, getActionItems, getAssignableUsers } from "@/lib/fetchers";
-import { getClientCompanies } from "@/lib/fetchers";
-import { getTaskViews } from "@/lib/actions";
+import { requireStaff } from "@/lib/auth-helpers";
+import { listClientOptions, listStaffUsers } from "@/lib/fetchers/clients";
+import { listTasks } from "@/lib/fetchers/projects";
+
 import { TasksClient } from "./client";
-import { JARO_DEV_INTERNAL_CLIENT_ID } from "@/lib/constants";
 
-export default async function TasksPage() {
-  const session = await getServerSession(authOptions);
+export const metadata = { title: "Tasks" };
 
-  if (!session?.user?.email) {
-    redirect("/");
-  }
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; assigneeId?: string; clientId?: string }>;
+}) {
+  const user = await requireStaff();
+  const { status, assigneeId, clientId } = await searchParams;
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-  });
-
-  if (!user || (user.role !== "ADMIN" && user.role !== "DEVELOPER")) {
-    redirect("/dashboard");
-  }
-
-  const [tasksResult, clientCompaniesResult, usersResult, actionItemsResult, taskViewsResult] = await Promise.all([
-    getTasks(),
-    getClientCompanies(),
-    getAssignableUsers(),
-    getActionItems(),
-    getTaskViews(),
-  ]);
-
-  // Filter data for developers - exclude Jaro.dev Internal client data
-  const isAdmin = user.role === "ADMIN";
-  const tasks = isAdmin 
-    ? tasksResult.data || []
-    : (tasksResult.data || []).filter(task => task.clientCompanyId !== JARO_DEV_INTERNAL_CLIENT_ID);
-  const clientCompanies = isAdmin
-    ? clientCompaniesResult.data || []
-    : (clientCompaniesResult.data || []).filter(c => c.id !== JARO_DEV_INTERNAL_CLIENT_ID);
-  const actionItems = isAdmin
-    ? actionItemsResult.data || []
-    : (actionItemsResult.data || []).filter(item => item.clientCompanyId !== JARO_DEV_INTERNAL_CLIENT_ID);
+  const [{ data: tasks, error }, { data: clients }, { data: users }] =
+    await Promise.all([
+      listTasks({ status, assigneeId, clientId }),
+      listClientOptions(),
+      listStaffUsers(),
+    ]);
 
   return (
-    <Suspense fallback={null}>
-      <TasksClient
-        tasks={tasks}
-        clientCompanies={clientCompanies}
-        users={usersResult.data || []}
-        actionItems={actionItems}
-        savedViews={taskViewsResult.data || []}
-      />
-    </Suspense>
+    <TasksClient
+      tasks={tasks ?? []}
+      clients={clients ?? []}
+      users={users ?? []}
+      error={error}
+      currentUserId={user.id}
+      filters={{
+        status: status ?? "",
+        assigneeId: assigneeId ?? "",
+        clientId: clientId ?? "",
+      }}
+    />
   );
 }

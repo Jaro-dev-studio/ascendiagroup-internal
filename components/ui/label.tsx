@@ -11,8 +11,8 @@ const labelVariants = cva(
   {
     variants: {
       variant: {
-        default: "dark:text-text-light text-text",
-        secondary: "text-text-secondary dark:text-text-secondary",
+        default: " text-foreground",
+        secondary: "text-muted-foreground",
       }
     },
     defaultVariants: {
